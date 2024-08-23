@@ -3,4 +3,4 @@ docker run \
     --gpus all \
     -v $(pwd):/workspace \
     --name fqa \
-    fqa:v1.0
+    fqa
