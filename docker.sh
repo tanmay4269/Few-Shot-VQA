@@ -3,4 +3,5 @@ docker run \
     --gpus all \
     -v $(pwd):/workspace \
     --name fqa \
-    fqa
+    bcdbb14063fa
+# fqa
