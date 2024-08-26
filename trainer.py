@@ -10,7 +10,6 @@ from torch.utils.data import DataLoader
 from data.dataset import *
 from models.models import *
 
-
 vqa_v2 = {
     "type": "v2",
     "image_root": "data/vqa-v2/val2014/val2014/COCO_val2014_000000",
@@ -69,14 +68,13 @@ class Trainer:
             "base_lr",
             "domain_adaptation_method",
         ]:
-
             v = self.cfg[k]
             title += f"{k}={v}__"
 
         self.cfg["title"] = title.replace(" ", "_")
 
         self.cfg["weights_save_path"] = (
-            self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
+                self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
         )
 
         print("weights_save_path:", self.cfg["weights_save_path"])
@@ -192,7 +190,7 @@ class Trainer:
             self.accuracies.append(accuracy)
 
             print(
-                f"Epoch [{epoch+1}/{self.num_epochs}]\t Avg Train Loss: {train_loss:.6f}\t Avg Eval Loss: {eval_loss:.6f}\t Avg Eval Accuracy: {accuracy:.2f}"
+                f"Epoch [{epoch + 1}/{self.num_epochs}]\t Avg Train Loss: {train_loss:.6f}\t Avg Eval Loss: {eval_loss:.6f}\t Avg Eval Accuracy: {accuracy:.2f}"
             )
 
             if show_plot and epoch > 0 and epoch % 10 == 0:
@@ -342,22 +340,22 @@ class DA_Trainer(Trainer):
 
     def get_alpha(self, i_dataloader, len_dataloader):
         p = (
-            float(i_dataloader + self.epoch * len_dataloader)
-            / self.num_epochs
-            / len_dataloader
+                float(i_dataloader + self.epoch * len_dataloader)
+                / self.num_epochs
+                / len_dataloader
         )
         return 2.0 / (1.0 + np.exp(-10 * p)) - 1
 
     def get_loss(
-        self,
-        v2_label_logits,
-        v2_domain_logits,
-        abs_label_logits,
-        abs_domain_logits,
-        v2_label,
-        abs_label,
-        v2_domain_label,
-        abs_domain_label,
+            self,
+            v2_label_logits,
+            v2_domain_logits,
+            abs_label_logits,
+            abs_domain_logits,
+            v2_label,
+            abs_label,
+            v2_domain_label,
+            abs_domain_label,
     ):
 
         v2_label_loss = self.criterion_label(v2_label_logits, v2_label)
@@ -391,15 +389,15 @@ class DA_Trainer(Trainer):
         return label_loss, domain_loss, total_loss
 
     def get_accuracy(
-        self,
-        v2_label_logits,
-        v2_domain_logits,
-        abs_label_logits,
-        abs_domain_logits,
-        v2_label,
-        abs_label,
-        v2_domain_label,
-        abs_domain_label,
+            self,
+            v2_label_logits,
+            v2_domain_logits,
+            abs_label_logits,
+            abs_domain_logits,
+            v2_label,
+            abs_label,
+            v2_domain_label,
+            abs_domain_label,
     ):
         # Compute accuracy
         _, v2_predicted_indices = torch.max(v2_label_logits, dim=1)
@@ -441,14 +439,14 @@ class DA_Trainer(Trainer):
         )
 
     def process_input(
-        self,
-        v2_i_tokens,
-        v2_q_tokens,
-        v2_label,
-        abs_i_tokens,
-        abs_q_tokens,
-        abs_label,
-        alpha,
+            self,
+            v2_i_tokens,
+            v2_q_tokens,
+            v2_label,
+            abs_i_tokens,
+            abs_q_tokens,
+            abs_label,
+            alpha,
     ):
         v2_i_tokens = {key: value.cuda() for key, value in v2_i_tokens.items()}
         v2_q_tokens = {key: value.cuda() for key, value in v2_q_tokens.items()}
@@ -498,8 +496,8 @@ class DA_Trainer(Trainer):
         total_running_loss = 0.0
 
         for i, (
-            (v2_i_tokens, v2_q_tokens, v2_label),
-            (abs_i_tokens, abs_q_tokens, abs_label),
+                (v2_i_tokens, v2_q_tokens, v2_label),
+                (abs_i_tokens, abs_q_tokens, abs_label),
         ) in enumerate(self.train_dataloader):
 
             self.alpha = self.get_alpha(i, self.num_train_batches)
@@ -542,14 +540,13 @@ class DA_Trainer(Trainer):
         running_loss = 0.0
 
         for i, (
-            (v2_i_tokens, v2_q_tokens, v2_label),
-            (
-                abs_i_tokens,
-                abs_q_tokens,
-                abs_label,
-            ),
+                (v2_i_tokens, v2_q_tokens, v2_label),
+                (
+                        abs_i_tokens,
+                        abs_q_tokens,
+                        abs_label,
+                ),
         ) in enumerate(self.val_dataloader):
-
             (
                 (label_loss, domain_loss, total_loss),
                 (
@@ -649,7 +646,7 @@ class DA_Trainer(Trainer):
             )
 
             print(
-                f"Epoch [{self.epoch+1}/{self.num_epochs}]\t \
+                f"Epoch [{self.epoch + 1}/{self.num_epochs}]\t \
                     Avg Train Loss: {total_loss:.6f}\t \
                     Avg Eval Loss: {eval_loss:.6f}\t \
                     Avg Domain Accuracy: {domain_accuracy:.2f}\t \

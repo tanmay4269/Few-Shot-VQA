@@ -235,7 +235,7 @@ class VQADataset(Dataset):
         self.data = data
 
         self.i_processor = AutoImageProcessor.from_pretrained(cfg['image_encoder'])
-        self.q_tokenizer = BertTokenizer.from_pretrained(cfg['text_encoder'])
+        self.q_tokenizer = BertTokenizer.from_pretrained(cfg['text_encoder'], clean_up_tokenization_spaces=True)
 
     def __len__(self):
         return len(self.data)
