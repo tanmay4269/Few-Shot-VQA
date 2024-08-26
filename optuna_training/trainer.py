@@ -1,3 +1,5 @@
+from comet_ml import Experiment
+
 import torch
 from trainer import DA_Trainer
 
@@ -5,8 +7,9 @@ import optuna
 from optuna.trial import TrialState
 
 
+
 class OptunaTrainer:
-    def __init__(self):
+    def __init__(self, n_trials, n_jobs):
         self.vqa_v2 = {
             "type": "v2",
             "image_root": "data/vqa-v2/val2014/val2014/COCO_val2014_000000",
@@ -22,16 +25,20 @@ class OptunaTrainer:
         }
 
         self.optuna_cfg = {
-            'n_trials': 10,
+            'n_trials': n_trials,
+            'n_jobs': n_jobs,
+            # 'comet_logging': True
+            'comet_logging': False
         }
 
+
         self.default_cfg = {
-            'name': 'NaiveSampling',
+            'name': 'DANN',
 
             ### DataLoader ###
             'n_classes': 10,
             'v2_samples_per_answer': 300,
-            'abs_samples_per_answer': 150,
+            'abs_samples_per_answer': 300,
             'source_domain': 'abs',
             
             
@@ -52,37 +59,40 @@ class OptunaTrainer:
             ## Label Classifier
             'label_classifier__use_bn': False,
             'label_classifier__drop_p': 0.0,
+            'label_classifier__repeat_layers': [2, 2], 
 
             ## Domain Classifier
-            'domain_classifier__use_bn': False,
-            'domain_classifier__drop_p': 0.0,
-            'domain_classifier__repeat_layers': [0, 0], 
+            'domain_classifier__use_bn': True,
+            'domain_classifier__drop_p': 0.5,
+            'domain_classifier__repeat_layers': [2, 2], 
 
 
             ### Objective ###
-            'domain_adaptation_method': 'naive',  # 'naive', 'importance_sampling', 'domain_adversarial'
+            'domain_adaptation_method': 'domain_adversarial',  # 'naive', 'importance_sampling', 'domain_adversarial'
 
 
             ### Trainer ###
-            'epochs': 10,
-            'batch_size': 100,
+            'relaxation_period': -1,
+
+            'epochs': 30,
+            'batch_size': 150,
             'base_lr': 0.001,
             'weight_decay': 0,
-
             
             ### Logging ###
+            'print_logs': False,
             'show_plot': True,
+            
             'weights_save_root': './weights/raw'
-            # comet_logging
         }
 
     def init_trainer(self, trial):
         self.sampled_cfg = {
             # # DataLoader ###
-            # 'n_classes': trial.suggest_int('n_classes', low=1, high=25),
+            # 'n_classes': trial.suggest_int('n_classes', low=5, high=25),
             # 'v2_samples_per_answer': 50 * trial.suggest_int('v2_samples_per_answer', low=1, high=6),
             # 'abs_samples_per_answer': 50 * trial.suggest_int('abs_samples_per_answer', low=1, high=6),
-            # 'source_domain': trial.suggest_categorical('source_domain', ['v2', 'abs']),
+            'source_domain': trial.suggest_categorical('source_domain', ['v2', 'abs']),
 
             # ### VLModel ###
             # ## Embedder
@@ -96,22 +106,32 @@ class OptunaTrainer:
             # 'embed_attn__drop_p': trial.suggest_categorical('embed_attn__drop_p', [0.0, 0.25, 0.5]),
 
             # ## Label Classifier
-            # 'label_classifier__use_bn': trial.suggest_categorical('label_classifier__use_bn', [False, True]),
-            # 'label_classifier__drop_p': trial.suggest_categorical('label_classifier__drop_p', [0.0, 0.25, 0.5]),
+            'label_classifier__use_bn': trial.suggest_categorical('label_classifier__use_bn', [False, True]),
+            'label_classifier__drop_p': trial.suggest_categorical('label_classifier__drop_p', [0.0, 0.25, 0.5]),
+            'label_classifier__repeat_layers': trial.suggest_categorical(
+                'label_classifier__repeat_layers', [0, 1, 2]
+            ),
 
             # ## Domain Classifier
-            # 'domain_classifier__use_bn': trial.suggest_categorical('domain_classifier__use_bn', [False, True]),
-            # 'domain_classifier__drop_p': trial.suggest_categorical('domain_classifier__drop_p', [0.0, 0.25, 0.5]),
-            
+            'domain_classifier__use_bn': trial.suggest_categorical('domain_classifier__use_bn', [False, True]),
+            'domain_classifier__drop_p': trial.suggest_categorical('domain_classifier__drop_p', [0.0, 0.25, 0.5]),
+            'domain_classifier__repeat_layers': trial.suggest_categorical(
+                'domain_classifier__repeat_layers', [0, 1, 2]
+            ),
 
             ### Trainer ###
             'base_lr': trial.suggest_float('base_lr', low=1e-5, high=1e-3, log=True),
-            # 'weight_decay': trial.suggest_float('weight_decay', low=1e-6, high=1e-4),
+            'weight_decay': trial.suggest_float('weight_decay', low=1e-6, high=1e-4),
         }
+
 
         self.cfg = self.default_cfg
         for k, v in self.sampled_cfg.items():
             self.cfg[k] = v
+
+        for k in ['label_classifier__repeat_layers', 'domain_classifier__repeat_layers']:
+            l = self.cfg[k]
+            self.cfg[k] = [l, l]
 
         trainer = DA_Trainer(self.cfg, self.vqa_v2, self.vqa_abs)
 
@@ -121,38 +141,31 @@ class OptunaTrainer:
 
     def objective(self, trial):
         trainer = self.init_trainer(trial)
+
+        experiment = None
+        if self.optuna_cfg['comet_logging']:
+            config = trainer.cfg
+            experiment = Experiment(
+                api_key="vGoIrJjMbmcYScW8fWPCX5hU5",
+                project_name="FS-VQA",
+                workspace="tanmay4269"
+            )
+            experiment.set_name(config['title'])
+            experiment.log_parameters(config)
+            
+
+        eval_loss = trainer.train(show_plot=True, optuna_trial=trial, comet_expt=experiment)
+
+        if self.optuna_cfg['comet_logging']:
+            experiment.end()
         
-        min_eval_loss = float("inf")
-        
-        for epoch in range(trainer.num_epochs):
-            metrics = trainer.step(epoch)
-            metrics['epoch'] = epoch
-            eval_loss = metrics['eval_loss']
-            
-            # Plotting
-            if self.cfg['show_plot'] and epoch > 0 and epoch % 10 == 0:
-                self.plot(epoch + 1)
-            
-            # Saving weights
-            if eval_loss < min_eval_loss:
-                min_eval_loss = eval_loss
-                torch.save(trainer.model.state_dict(), self.cfg["weights_save_path"])
-
-            # Logging
-            for metric_name, metric_value in metrics.items():
-                trial.set_user_attr(metric_name, metric_value)
-
-            # Optuna stuff
-            trial.report(eval_loss, epoch)
-
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
-            
         return eval_loss
     
     def run(self):
         study = optuna.create_study(direction="minimize")
-        study.optimize(self.objective, n_trials=self.optuna_cfg['n_trials'])
+        print(f"Sampler is {study.sampler.__class__.__name__}")
+
+        study.optimize(self.objective, n_trials=self.optuna_cfg['n_trials'], n_jobs=self.optuna_cfg['n_jobs'])
 
         pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
         complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])

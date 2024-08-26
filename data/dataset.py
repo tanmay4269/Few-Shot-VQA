@@ -10,19 +10,18 @@ from torch.utils.data import Dataset
 
 from transformers import AutoImageProcessor, BertTokenizer
 
+"""
 def data_processing(
         cfg, 
         dataset, 
         train_val_split=0.8):
-    """
-    Returns 
-    1. list of {image_path, question, answer_id}
-       -> train_data and val_data
-       -> answer_id in the labels list given
-       -> len = n_classes * samples_per_answer
-    2. list of answer labels
-       -> len = n_classes
-    """
+    # Returns 
+    # 1. list of {image_path, question, answer_id}
+    #    -> train_data and val_data
+    #    -> answer_id in the labels list given
+    #    -> len = n_classes * samples_per_answer
+    # 2. list of answer labels
+    #    -> len = n_classes
     n_classes = cfg['n_classes']
     samples_per_answer = cfg['samples_per_answer']
 
@@ -40,7 +39,9 @@ def data_processing(
         question_id_map[question['question_id']] = question['question']
         max_q_len = max(max_q_len, len(question['question'].split()))
 
-    print("Max question length = ", max_q_len)
+    if cfg['print_logs']:
+        print("Max question length = ", max_q_len)
+    
     cfg['max_q_len'] = max_q_len
 
     annotations = annotations['annotations']
@@ -59,7 +60,9 @@ def data_processing(
             top_samples.append(sample[:samples_per_answer])
     
     labels = list(sorted(top_answers))
-    print(f'Labels = {labels}')
+    
+    if cfg['print_logs']:
+        print(f'Labels = {labels}')
 
     train_data = []
     val_data = []
@@ -85,11 +88,15 @@ def data_processing(
                 'answer_id': labels.index(answer)
             })
 
-    print(f'Train size = {len(train_data)} \
-          | Val size = {len(val_data)} | Total = {len(train_data) + len(val_data)}')
+    if cfg['print_logs']:
+        print(f'Train size = {len(train_data)} \
+            | Val size = {len(val_data)} | Total = {len(train_data) + len(val_data)}')
 
-    print('-' * 20)
+        print('-' * 20)
+
     return train_data, val_data, labels
+"""
+
 
 def data_processing_v2(
         cfg, 
@@ -173,14 +180,17 @@ def data_processing_v2(
         filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
         filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
 
-    print(f'Number of Common Labels = {len(filtered_answers)} | n_classes = {n_classes}')
+    if cfg['print_logs']:
+        print(f'Number of Common Labels = {len(filtered_answers)} | n_classes = {n_classes}')
 
-    if len(filtered_answers) < n_classes:
+    if cfg['print_logs'] and len(filtered_answers) < n_classes:
         print(f'Updating n_classes from {n_classes} to {len(filtered_answers)}')
         cfg['n_classes'] = n_classes = len(filtered_answers)
 
     labels = filtered_answers[:n_classes]
-    print(f'Labels: {labels}')
+    
+    if cfg['print_logs']:
+        print(f'Labels: {labels}')
 
     v2_train_data = []
     v2_val_data = []
@@ -201,8 +211,9 @@ def data_processing_v2(
                 'answer_id': labels.index(answer)
             })
 
-    print(f'V2: \tTrain size = {len(v2_train_data)} \
-          | Val size = {len(v2_val_data)} | Total = {len(v2_train_data) + len(v2_val_data)}')
+    if cfg['print_logs']:
+        print(f'V2: \tTrain size = {len(v2_train_data)} \
+            | Val size = {len(v2_val_data)} | Total = {len(v2_train_data) + len(v2_val_data)}')
 
     abs_train_data = []
     abs_val_data = []
@@ -223,10 +234,12 @@ def data_processing_v2(
                 'answer_id': labels.index(answer)
             })
 
-    print(f'Abs: \tTrain size = {len(abs_train_data)} \
-          | Val size = {len(abs_val_data)} | Total = {len(abs_train_data) + len(abs_val_data)}')
+    if cfg['print_logs']:
+        print(f'Abs: \tTrain size = {len(abs_train_data)} \
+            | Val size = {len(abs_val_data)} | Total = {len(abs_train_data) + len(abs_val_data)}')
 
-    print('-' * 20)
+        print('-' * 20)
+        
     return (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), labels
 
 class VQADataset(Dataset):

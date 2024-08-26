@@ -73,6 +73,7 @@ class VLModel(nn.Module):
             cfg["label_classifier__drop_p"],
             self.embed_dim,
             output_dim,
+            repeat_layers=cfg['label_classifier__repeat_layers']
         )
 
     def init_ffn(self, use_bn, drop_p, embed_dim, output_dim, repeat_layers=[0,0]):

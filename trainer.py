@@ -10,6 +10,10 @@ from torch.utils.data import DataLoader
 from data.dataset import *
 from models.models import *
 
+import optuna
+from comet_ml.integration.pytorch import log_model
+
+
 vqa_v2 = {
     "type": "v2",
     "image_root": "data/vqa-v2/val2014/val2014/COCO_val2014_000000",
@@ -66,18 +70,27 @@ class Trainer:
             "abs_samples_per_answer",
             "source_domain",
             "base_lr",
-            "domain_adaptation_method",
+            # "domain_adaptation_method",
         ]:
             v = self.cfg[k]
-            title += f"{k}={v}__"
+            if k != "base_lr": 
+                title += f"{k}={v}__"
+            else:
+                title += f"{k}={v:.2e}__"
 
-        self.cfg["title"] = title.replace(" ", "_")
+
+        def random_string(n):
+            chars = np.array(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'))
+            return ''.join(np.random.choice(chars, n))
+        
+        self.cfg["title"] = title.replace(" ", "_") + random_string(8)
 
         self.cfg["weights_save_path"] = (
                 self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
         )
 
-        print("weights_save_path:", self.cfg["weights_save_path"])
+        if cfg['print_logs']:
+            print("weights_save_path:", self.cfg["weights_save_path"])
 
     def init_dataloader(self):
         (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), labels = (
@@ -136,7 +149,7 @@ class Trainer:
             loss = self.criterion(logits, label)
             running_loss += loss.item()
 
-            if num_batches > 16 and i % (num_batches // 4) == 0:
+            if self.cfg['print_logs'] and num_batches > 16 and i % (num_batches // 4) == 0:
                 print(f"\t Iter [{i}/{num_batches}]\t Loss: {loss.item():.6f}")
 
             self.optimizer.zero_grad()
@@ -516,7 +529,7 @@ class DA_Trainer(Trainer):
             domain_running_loss += domain_loss.item()
             total_running_loss += total_loss.item()
 
-            if self.num_train_batches > 4 and i % (self.num_train_batches // 4) == 0:
+            if self.cfg['print_logs'] and self.num_train_batches > 4 and i % (self.num_train_batches // 4) == 0:
                 print(
                     f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
                 )
@@ -589,35 +602,7 @@ class DA_Trainer(Trainer):
 
         return eval_loss, v2_accuracy, abs_accuracy, total_accuracy, domain_accuracy
 
-    def step(self, epoch):
-        self.epoch = epoch
-        self.train_dataloader = zip(self.v2_train_dataloader, self.abs_train_dataloader)
-        self.val_dataloader = zip(self.v2_val_dataloader, self.abs_val_dataloader)
-
-        label_loss, domain_loss, total_loss = self.train_epoch()
-        with torch.no_grad():
-            (
-                eval_loss,
-                v2_accuracy,
-                abs_accuracy,
-                total_accuracy,
-                domain_accuracy,
-            ) = self.eval_epoch()
-
-        self.scheduler.step()
-
-        return {
-            "label_loss": label_loss,
-            "domain_loss": domain_loss,
-            "total_loss": total_loss,
-            "eval_loss": eval_loss,
-            "v2_accuracy": v2_accuracy,
-            "abs_accuracy": abs_accuracy,
-            "total_accuracy": total_accuracy,
-            "domain_accuracy": domain_accuracy,
-        }
-
-    def train(self, show_plot):
+    def train(self, show_plot, optuna_trial=None, comet_expt=None):
         min_eval_loss = float("inf")
         high_eval_loss_count = 0
 
@@ -645,23 +630,49 @@ class DA_Trainer(Trainer):
                 (v2_accuracy, abs_accuracy, total_accuracy, domain_accuracy)
             )
 
-            print(
-                f"Epoch [{self.epoch + 1}/{self.num_epochs}]\t \
-                    Avg Train Loss: {total_loss:.6f}\t \
-                    Avg Eval Loss: {eval_loss:.6f}\t \
-                    Avg Domain Accuracy: {domain_accuracy:.2f}\t \
-                    Avg Eval Accuracy: {total_accuracy:.2f}"
-            )
-
+            # Plotting
             if show_plot and self.epoch > 0 and self.epoch % 10 == 0:
                 self.plot(self.epoch + 1)
+            
+            # Logging
+            if self.cfg['print_logs']:
+                print(
+                    f"Epoch [{self.epoch + 1}/{self.num_epochs}]\t \
+                        Avg Train Loss: {total_loss:.6f}\t \
+                        Avg Eval Loss: {eval_loss:.6f}\t \
+                        Avg Domain Accuracy: {domain_accuracy:.2f}\t \
+                        Avg Eval Accuracy: {total_accuracy:.2f}"
+                )
+            
+            # Comet Logging
+            if comet_expt:
+                comet_expt.log_metrics({
+                    'Loss/Train_label': label_loss,
+                    'Loss/Train_domain': domain_loss,
+                    'Loss/Train_total': total_loss,
+                    'Loss/Eval': eval_loss,
+                    'Accuracy/Domain': domain_accuracy,
+                    'Accuracy/v2_label': v2_accuracy,
+                    'Accuracy/abs_label': abs_accuracy,
+                    'Accuracy/avg_label': total_accuracy
+                }, step=self.epoch)
 
-            if self.epoch == 0 or self.cfg["relaxation_period"] < 0:
-                continue
+            
+            # Optuna Logging
+            if optuna_trial:
+                optuna_trial.report(eval_loss, self.epoch)
+                
+                if optuna_trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
 
-            if self.eval_losses[-1] < min_eval_loss:
+            # Saving model
+            if self.epoch > 0 and self.eval_losses[-1] < min_eval_loss:
                 min_eval_loss = self.eval_losses[-1]
                 torch.save(self.model.state_dict(), self.cfg["weights_save_path"])
+
+            # Early Stopping
+            if optuna_trial is None or self.cfg["relaxation_period"] < 0:
+                continue
 
             if self.eval_losses[-1] > self.eval_losses[-2]:
                 high_eval_loss_count += 1
@@ -671,3 +682,83 @@ class DA_Trainer(Trainer):
                     break
             else:
                 high_eval_loss_count = 0
+
+        # Post Training Plot and Model Upload
+        if show_plot:
+            self.plot(self.epoch + 1)
+
+        if comet_expt:
+            log_model(comet_expt, self.model, 'da-vqa')
+
+        return eval_loss
+
+
+if __name__ == '__main__':
+    cfg = {
+        ### META ###
+        'name': 'DANN',
+        'print_logs': False,
+
+        ### DataLoader ###
+        'n_classes': 10,
+        'v2_samples_per_answer': 300,
+        'abs_samples_per_answer': 150,
+        'source_domain': 'abs',
+        
+        ### VLModel ###
+        'image_encoder': 'facebook/dinov2-base',
+        'text_encoder': 'bert-base-uncased',
+        
+        ## Embedder
+        'num_attn_heads': 8,
+        'fusion_mode': 'cat',
+        'num_stacked_attn': 1, 
+        
+        'criss_cross__drop_p': 0.0,
+        'post_concat__drop_p': 0.0, 
+        'embed_attn__add_residual': False,
+        'embed_attn__drop_p': 0.0,
+
+        ## Label Classifier
+        'label_classifier__use_bn': False,
+        'label_classifier__drop_p': 0.0,
+
+        ## Domain Classifier
+        'domain_classifier__use_bn': False,
+        'domain_classifier__drop_p': 0.0,
+        'domain_classifier__repeat_layers': [0, 0], 
+
+        ### Objective ###
+        # loss fn
+        'domain_adaptation_method': 'domain_adversarial',  # 'naive', 'importance_sampling', 'domain_adversarial'
+
+        ### Trainer ###
+        'relaxation_period': 3,  # epochs to wait where accuracy is dropping 
+                                # below moving average before ending the run
+                                # (-1 to disable it)
+        
+        'batch_size': 100,
+        'epochs': 30,
+        'base_lr': 0.001,
+        'weight_decay': 5e-4,
+
+        ### Logging ###
+        'weights_save_root': './weights/raw'
+        # plot
+    }
+
+
+    if True:
+        # v2
+        cfg['source_domain'] = 'v2'
+        trainer = DA_Trainer(cfg, vqa_v2, vqa_abs)
+        v2_ckpt_path = cfg['weights_save_path']
+
+        trainer.train(show_plot=True)
+
+        # abs
+        cfg['source_domain'] = 'abs'
+        trainer = DA_Trainer(cfg, vqa_v2, vqa_abs)
+        abs_ckpt_path = cfg['weights_save_path']
+
+        trainer.train(show_plot=False)
