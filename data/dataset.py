@@ -187,10 +187,56 @@ def data_processing_v2(
         print(f'Updating n_classes from {n_classes} to {len(filtered_answers)}')
         cfg['n_classes'] = n_classes = len(filtered_answers)
 
-    labels = filtered_answers[:n_classes]
+
+    # labels = filtered_answers[:n_classes]
+    samples_lowerbound = min(cfg['v2_samples_per_answer'], cfg['abs_samples_per_answer'])
+
+    if samples_lowerbound >= 300:  # 16 labels
+        label_types = {
+            'yes_no': ['yes', 'no'],
+            'numbers': ['0', '1', '2', '3', '4', '5'],
+            'colors': ['brown', 'red', 'yellow', 'blue', 'green', 'white'],
+            'living_things': ['dog', 'cat']
+        }
+    elif samples_lowerbound >= 250: # 18 labels
+        label_types = {
+            'yes_no': ['yes', 'no'],
+            'numbers': ['0', '1', '2', '3', '4', '5'],
+            'colors': ['brown', 'red', 'yellow', 'blue', 'green', 'white', 'gray', 'black'],
+            'living_things': ['dog', 'cat']
+        }
+    elif samples_lowerbound >= 200: # 25 labels
+        label_types = {
+            'yes_no': ['yes', 'no'],
+            'numbers': ['0', '1', '2', '3', '4', '5'],
+            'colors': ['brown', 'red', 'yellow', 'blue', 'green', 'white', 'gray', 'black'],
+            'living_things': ['dog', 'cat', 'women'],
+            'non_living_things': ['food', 'table'],
+            'others': ['soccer', 'left', 'right', 'nothing'],
+        }
+    else: # 32 labels
+    # elif samples_lowerbound >= 150: # 32 labels
+        label_types = {
+            'yes_no': ['yes', 'no'],
+            'numbers': ['0', '1', '2', '3', '4', '5'],
+            'colors': ['brown', 'red', 'yellow', 'blue', 'green', 'white', 'gray', 'black', 'orange'],
+            'living_things': ['dog', 'cat', 'women', 'man'],
+            'non_living_things': ['food', 'table', 'apple', 'wine'],
+            'others': ['soccer', 'beach', 'left', 'right', 'nothing'],
+        }
+
+    # labels and label_type
+    all_labels = []
+    for key in label_types:
+        all_labels.extend(label_types[key])
+
+    label_to_key = {}
+    for key, labels in label_types.items():
+        for label in labels:
+            label_to_key[label] = key
     
     if cfg['print_logs']:
-        print(f'Labels: {labels}')
+        print(f'Labels: {all_labels}')
 
     v2_train_data = []
     v2_val_data = []
@@ -208,7 +254,8 @@ def data_processing_v2(
             data.append({
                 'image_path': image_path,
                 'question': question,
-                'answer_id': labels.index(answer)
+                'answer_id': filtered_answers.index(answer),
+                'answer_type': label_to_key[answer],
             })
 
     if cfg['print_logs']:
@@ -231,7 +278,8 @@ def data_processing_v2(
             data.append({
                 'image_path': image_path,
                 'question': question,
-                'answer_id': labels.index(answer)
+                'answer_id': filtered_answers.index(answer),
+                'answer_type': label_to_key[answer],
             })
 
     if cfg['print_logs']:
@@ -240,7 +288,7 @@ def data_processing_v2(
 
         print('-' * 20)
         
-    return (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), labels
+    return (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), all_labels
 
 class VQADataset(Dataset):
     def __init__(self, cfg, data):
@@ -258,6 +306,9 @@ class VQADataset(Dataset):
 
         idx_tr = torch.tensor(data_item['answer_id'])
         label = F.one_hot(idx_tr, num_classes=self.cfg['n_classes']).float()
+
+        idx_tr = torch.tensor(data_item['answer_type'])
+        label_type = F.one_hot(idx_tr, num_classes=self.cfg['n_types']).float()
 
         image = Image.open(data_item['image_path']).convert('RGB')
         
@@ -280,7 +331,7 @@ class VQADataset(Dataset):
         for key, value in q_tokens.items():
             q_tokens[key] = value.squeeze(0)
 
-        return i_tokens, q_tokens, label
+        return i_tokens, q_tokens, label, label_type
 
 
 class DA_DataLoader:

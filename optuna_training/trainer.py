@@ -27,8 +27,8 @@ class OptunaTrainer:
         self.optuna_cfg = {
             'n_trials': n_trials,
             'n_jobs': n_jobs,
-            # 'comet_logging': True
-            'comet_logging': False
+            'comet_logging': True
+            # 'comet_logging': False
         }
 
 
@@ -57,6 +57,9 @@ class OptunaTrainer:
             'embed_attn__drop_p': 0.0,
 
             ## Label Classifier
+            'use_label_type_classifier': False,
+            'num_label_types': 5,
+
             'label_classifier__use_bn': False,
             'label_classifier__drop_p': 0.0,
             'label_classifier__repeat_layers': [2, 2], 
@@ -90,8 +93,8 @@ class OptunaTrainer:
         self.sampled_cfg = {
             # # DataLoader ###
             # 'n_classes': trial.suggest_int('n_classes', low=5, high=25),
-            # 'v2_samples_per_answer': 50 * trial.suggest_int('v2_samples_per_answer', low=1, high=6),
-            # 'abs_samples_per_answer': 50 * trial.suggest_int('abs_samples_per_answer', low=1, high=6),
+            'v2_samples_per_answer': 50 * trial.suggest_int('v2_samples_per_answer', low=1, high=6),
+            'abs_samples_per_answer': 50 * trial.suggest_int('abs_samples_per_answer', low=1, high=6),
             'source_domain': trial.suggest_categorical('source_domain', ['v2', 'abs']),
 
             # ### VLModel ###

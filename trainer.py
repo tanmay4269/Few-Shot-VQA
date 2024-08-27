@@ -369,13 +369,24 @@ class DA_Trainer(Trainer):
             abs_label,
             v2_domain_label,
             abs_domain_label,
+            
+            v2_label_type_logits=None,
+            abs_label_type_logits=None,
+            v2_label_type=None,
+            abs_label_type=None,
     ):
-
+        
         v2_label_loss = self.criterion_label(v2_label_logits, v2_label)
         abs_label_loss = self.criterion_label(abs_label_logits, abs_label)
 
         v2_domain_loss = self.criterion_domain(v2_domain_logits, v2_domain_label)
         abs_domain_loss = self.criterion_domain(abs_domain_logits, abs_domain_label)
+        domain_loss = 0.5 * v2_domain_loss + 0.5 * abs_domain_loss
+
+        if v2_label_type:
+            v2_label_type_loss = self.criterion_label(v2_label_type_logits, v2_label_type)
+            abs_label_type_loss = self.criterion_label(abs_label_type_logits, abs_label_type)
+            label_type_loss = 0.5 * v2_label_type_loss + 0.5 * abs_label_type_loss
 
         v2_domain_prob = F.sigmoid(v2_domain_logits)
         abs_domain_prob = F.sigmoid(abs_domain_logits)
@@ -395,11 +406,16 @@ class DA_Trainer(Trainer):
         weighted_abs_label_loss = (abs_weight * abs_label_loss).mean()
 
         label_loss = 0.5 * weighted_v2_label_loss + 0.5 * weighted_abs_label_loss
-        domain_loss = 0.5 * v2_domain_loss + 0.5 * abs_domain_loss
 
-        total_loss = 0.5 * label_loss + 0.5 * domain_loss
+        if v2_label_type:
+            total_loss = 0.5 * (0.5 * label_loss + 0.5 * label_type_loss) + 0.5 * domain_loss
+        else:
+            total_loss = 0.5 * label_loss + 0.5 * domain_loss
 
-        return label_loss, domain_loss, total_loss
+        if not self.cfg['use_label_type_classifier']:
+            return label_loss, domain_loss, total_loss
+        else:
+            return label_loss, domain_loss, label_type_loss, total_loss
 
     def get_accuracy(
             self,
@@ -411,8 +427,13 @@ class DA_Trainer(Trainer):
             abs_label,
             v2_domain_label,
             abs_domain_label,
+            
+            v2_label_type_logits=None,
+            abs_label_type_logits=None,
+            v2_label_type=None,
+            abs_label_type=None,
     ):
-        # Compute accuracy
+        # V2 - label
         _, v2_predicted_indices = torch.max(v2_label_logits, dim=1)
         v2_label_indices = torch.argmax(v2_label, dim=1)
         is_correct_v2 = v2_predicted_indices == v2_label_indices
@@ -420,18 +441,35 @@ class DA_Trainer(Trainer):
         v2_total = v2_label.shape[0]
         v2_correct = is_correct_v2.sum().item()
 
-        #
+        # V2 - label type
+        _, v2_predicted_type_indices = torch.max(v2_label_type_logits, dim=1)
+        v2_label_type_indices = torch.argmax(v2_label_type, dim=1)
+        is_correct_type_v2 = v2_predicted_type_indices == v2_label_type_indices
+
+        v2_correct_type = is_correct_type_v2.sum().item()
+
+        # Abs - label
         _, abs_predicted_indices = torch.max(abs_label_logits, dim=1)
-        abs_label_indices = torch.argmax(abs_label, dim=1)
+        abs_label_indices = torch.argmax(abs_label_type, dim=1)
         is_correct_abs = abs_predicted_indices == abs_label_indices
 
         abs_total = abs_label.shape[0]
         abs_correct = is_correct_abs.sum().item()
 
+        # Abs - label type
+        _, abs_predicted_type_indices = torch.max(abs_label_type_logits, dim=1)
+        abs_label_type_indices = torch.argmax(abs_label, dim=1)
+        is_correct_type_abs = abs_predicted_type_indices == abs_label_type_indices
+
+        abs_correct_type = is_correct_type_abs.sum().item()
+
+        # Total - label 
         total = v2_label.shape[0] + abs_label.shape[0]
         correct = is_correct_v2.sum().item() + is_correct_abs.sum().item()
 
-        #
+        correct_type = is_correct_type_v2.sum().item() + is_correct_type_abs.sum().item()
+
+        # domain
         v2_domain_pred = F.sigmoid(v2_domain_logits) > 0.5
         abs_domain_pred = F.sigmoid(abs_domain_logits) > 0.5
         is_correct_v2_d = v2_domain_pred == v2_domain_label
@@ -440,7 +478,7 @@ class DA_Trainer(Trainer):
         domain_total = v2_domain_label.shape[0] + abs_domain_label.shape[0]
         domain_correct = is_correct_v2_d.sum().item() + is_correct_abs_d.sum().item()
 
-        return (
+        accuracies = [
             v2_total,
             v2_correct,
             abs_total,
@@ -449,7 +487,18 @@ class DA_Trainer(Trainer):
             correct,
             domain_total,
             domain_correct,
-        )
+        ]
+
+        if self.cfg['use_label_type_classifier']:
+            type_accuracies = [
+                v2_correct_type,
+                abs_correct_type,
+                correct_type,
+            ]
+
+            accuracies += type_accuracies
+
+        return accuracies
 
     def process_input(
             self,
@@ -460,6 +509,9 @@ class DA_Trainer(Trainer):
             abs_q_tokens,
             abs_label,
             alpha,
+
+            v2_label_type=None,
+            abs_label_type=None,
     ):
         v2_i_tokens = {key: value.cuda() for key, value in v2_i_tokens.items()}
         v2_q_tokens = {key: value.cuda() for key, value in v2_q_tokens.items()}
@@ -467,38 +519,55 @@ class DA_Trainer(Trainer):
         abs_i_tokens = {key: value.cuda() for key, value in abs_i_tokens.items()}
         abs_q_tokens = {key: value.cuda() for key, value in abs_q_tokens.items()}
 
-        v2_label_logits, v2_domain_logits = self.model(v2_i_tokens, v2_q_tokens, alpha)
-        abs_label_logits, abs_domain_logits = self.model(
+        v2_logits = self.model(v2_i_tokens, v2_q_tokens, alpha)
+        abs_logits = self.model(
             abs_i_tokens, abs_q_tokens, alpha
         )
 
-        v2_label = v2_label.cuda()
-        abs_label = abs_label.cuda()
+        v2_label, abs_label = v2_label.cuda(), abs_label.cuda()
+        v2_label_type, abs_label_type = v2_label_type.cuda(), abs_label_type.cuda()
 
         v2_domain_label = self.v2_domain_label.repeat(v2_label.shape[0], 1).cuda()
         abs_domain_label = self.abs_domain_label.repeat(abs_label.shape[0], 1).cuda()
+        
+        if not self.cfg['use_label_type_classifier']:
+            v2_label_logits, v2_domain_logits = v2_logits
+            abs_label_logits, abs_domain_logits = abs_logits
 
-        losses = self.get_loss(
-            v2_label_logits,
-            v2_domain_logits,
-            abs_label_logits,
-            abs_domain_logits,
-            v2_label,
-            abs_label,
-            v2_domain_label,
-            abs_domain_label,
-        )
+            args = [
+                v2_label_logits,
+                v2_domain_logits,
+                abs_label_logits,
+                abs_domain_logits,
+                v2_label,
+                abs_label,
+                v2_domain_label,
+                abs_domain_label,
+            ]
+        else:
+            v2_label_logits, v2_domain_logits, v2_label_type_logits = v2_logits
+            abs_label_logits, abs_domain_logits, abs_label_type_logits = abs_logits
 
-        accuracies = self.get_accuracy(
-            v2_label_logits,
-            v2_domain_logits,
-            abs_label_logits,
-            abs_domain_logits,
-            v2_label,
-            abs_label,
-            v2_domain_label,
-            abs_domain_label,
-        )
+            args = [
+                v2_label_logits,
+                v2_domain_logits,
+                abs_label_logits,
+                abs_domain_logits,
+                v2_label,
+                abs_label,
+                v2_domain_label,
+                abs_domain_label,
+
+                v2_label_type_logits,
+                abs_label_type_logits,
+                v2_label_type,
+                abs_label_type,
+            ]
+
+
+        losses = self.get_loss(*args)
+
+        accuracies = self.get_accuracy(*args)
 
         return (losses, accuracies)
 
@@ -509,13 +578,13 @@ class DA_Trainer(Trainer):
         total_running_loss = 0.0
 
         for i, (
-                (v2_i_tokens, v2_q_tokens, v2_label),
-                (abs_i_tokens, abs_q_tokens, abs_label),
+                (v2_i_tokens, v2_q_tokens, v2_label, v2_label_type),
+                (abs_i_tokens, abs_q_tokens, abs_label, abs_label_type),
         ) in enumerate(self.train_dataloader):
 
             self.alpha = self.get_alpha(i, self.num_train_batches)
 
-            (label_loss, domain_loss, total_loss), _ = self.process_input(
+            (label_loss, domain_loss, label_type_loss, total_loss), _ = self.process_input(
                 v2_i_tokens,
                 v2_q_tokens,
                 v2_label,
@@ -523,6 +592,9 @@ class DA_Trainer(Trainer):
                 abs_q_tokens,
                 abs_label,
                 self.alpha,
+
+                v2_label_type,
+                abs_label_type,
             )
 
             label_running_loss += label_loss.item()
@@ -688,22 +760,24 @@ class DA_Trainer(Trainer):
             self.plot(self.epoch + 1)
 
         if comet_expt:
-            log_model(comet_expt, self.model, 'da-vqa')
+            # log_model(comet_expt, self.model, 'da-vqa')
+            pass
 
         return eval_loss
 
 
 if __name__ == '__main__':
     cfg = {
-        ### META ###
         'name': 'DANN',
-        'print_logs': False,
 
         ### DataLoader ###
         'n_classes': 10,
-        'v2_samples_per_answer': 300,
+        'n_types': 6,
+
+        'v2_samples_per_answer': 150,
         'abs_samples_per_answer': 150,
-        'source_domain': 'abs',
+        'source_domain': 'v2',
+        
         
         ### VLModel ###
         'image_encoder': 'facebook/dinov2-base',
@@ -720,31 +794,37 @@ if __name__ == '__main__':
         'embed_attn__drop_p': 0.0,
 
         ## Label Classifier
-        'label_classifier__use_bn': False,
+        # 'use_label_type_classifier': False,
+        # 'use_label_type_classifier': True,
+        'num_label_types': 5,
+
+        'label_classifier__use_bn': True,
         'label_classifier__drop_p': 0.0,
+        'label_classifier__repeat_layers': [0, 0], 
 
         ## Domain Classifier
-        'domain_classifier__use_bn': False,
-        'domain_classifier__drop_p': 0.0,
-        'domain_classifier__repeat_layers': [0, 0], 
+        'domain_classifier__use_bn': True,
+        'domain_classifier__drop_p': 0.5,
+        'domain_classifier__repeat_layers': [2, 2], 
+
 
         ### Objective ###
-        # loss fn
         'domain_adaptation_method': 'domain_adversarial',  # 'naive', 'importance_sampling', 'domain_adversarial'
 
-        ### Trainer ###
-        'relaxation_period': 3,  # epochs to wait where accuracy is dropping 
-                                # below moving average before ending the run
-                                # (-1 to disable it)
-        
-        'batch_size': 100,
-        'epochs': 30,
-        'base_lr': 0.001,
-        'weight_decay': 5e-4,
 
+        ### Trainer ###
+        'relaxation_period': -1,
+
+        'epochs': 30,
+        'batch_size': 150,
+        'base_lr': 0.0005,
+        'weight_decay': 1e-5,
+        
         ### Logging ###
+        'print_logs': False,
+        'show_plot': True,
+        
         'weights_save_root': './weights/raw'
-        # plot
     }
 
 

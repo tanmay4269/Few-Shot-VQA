@@ -227,16 +227,33 @@ class VLModel_IS(VLModel):
             repeat_layers=cfg['domain_classifier__repeat_layers'],
         )
 
+        self.label_type_classifier = self.init_ffn(
+            use_bn=False, 
+            drop_p=0.0,
+            embed_dim=self.embed_dim,
+            output_dim=cfg['num_label_types'],
+            repeat_layers=[0,0],
+        )
+
+        # append label type info into label_classifier's input
+        self.condition_embeddings = nn.Linear(
+            in_features = self.embed_dim + cfg['num_label_types'],
+            out_features = self.embed_dim
+        )
+
     def forward(self, i_tokens, q_tokens, alpha=None):
         embedding = self.get_embedding(i_tokens, q_tokens)
         embedding = embedding.squeeze(1)
 
-        label_logits = self.label_classifier(embedding)
-
         domain_features = embedding if not alpha or not self.grad_reversal else ReverseLayerF.apply(embedding, alpha)
         domain_logits = self.domain_classifier(domain_features)
 
-        if self.return_embeddings:
-            return label_logits, domain_logits, embedding.cpu().numpy()
+        label_type_logits = self.label_type_classifier(embedding)
+        embedding = self.condition_embeddings(torch.cat((embedding, label_type_logits), dim=1))
 
-        return label_logits, domain_logits
+        label_logits = self.label_classifier(embedding)
+
+        if self.return_embeddings:
+            return label_logits, domain_logits, label_type_logits, embedding.cpu().numpy()
+            
+        return label_logits, domain_logits, label_type_logits
