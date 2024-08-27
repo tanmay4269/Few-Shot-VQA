@@ -63,27 +63,29 @@ class Trainer:
         self.cfg = cfg
 
         title = ""
-        for k in [
-            "name",
-            "n_classes",
-            "v2_samples_per_answer",
-            "abs_samples_per_answer",
-            "source_domain",
-            "base_lr",
-            # "domain_adaptation_method",
-        ]:
-            v = self.cfg[k]
-            if k != "base_lr": 
-                title += f"{k}={v}__"
-            else:
-                title += f"{k}={v:.2e}__"
+        # for k in [
+        #     "name",
+        #     "n_classes",
+        #     "v2_samples_per_answer",
+        #     "abs_samples_per_answer",
+        #     "source_domain",
+        #     "base_lr",
+        #     # "domain_adaptation_method",
+        # ]:
+        #     v = self.cfg[k]
+        #     if k != "base_lr": 
+        #         title += f"{k}={v}__"
+        #     else:
+        #         title += f"{k}={v:.2e}__"
+
+        # title = title.replace(" ", "_")
 
 
         def random_string(n):
             chars = np.array(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'))
             return ''.join(np.random.choice(chars, n))
         
-        self.cfg["title"] = title.replace(" ", "_") + random_string(8)
+        self.cfg["title"] = title + random_string(8)
 
         self.cfg["weights_save_path"] = (
                 self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
@@ -697,12 +699,18 @@ if __name__ == '__main__':
     cfg = {
         ### META ###
         'name': 'DANN',
-        'print_logs': False,
 
         ### DataLoader ###
         'n_classes': 10,
         'v2_samples_per_answer': 300,
-        'abs_samples_per_answer': 150,
+        'abs_samples_per_answer': 300,
+
+        'v2_samples_per_answer_train': 100,
+        'v2_samples_per_answer_val': 50,
+
+        'abs_samples_per_answer_train': 100,
+        'abs_samples_per_answer_val': 50,
+
         'source_domain': 'abs',
         
         ### VLModel ###
@@ -722,6 +730,7 @@ if __name__ == '__main__':
         ## Label Classifier
         'label_classifier__use_bn': False,
         'label_classifier__drop_p': 0.0,
+        'label_classifier__repeat_layers': [0, 0],
 
         ## Domain Classifier
         'domain_classifier__use_bn': False,
@@ -737,14 +746,16 @@ if __name__ == '__main__':
                                 # below moving average before ending the run
                                 # (-1 to disable it)
         
-        'batch_size': 100,
+        'batch_size': 150,
         'epochs': 30,
         'base_lr': 0.001,
         'weight_decay': 5e-4,
 
         ### Logging ###
+        'print_logs': True,
+        # 'print_logs': False,
+
         'weights_save_root': './weights/raw'
-        # plot
     }
 
 

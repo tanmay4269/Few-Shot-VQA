@@ -10,93 +10,6 @@ from torch.utils.data import Dataset
 
 from transformers import AutoImageProcessor, BertTokenizer
 
-"""
-def data_processing(
-        cfg, 
-        dataset, 
-        train_val_split=0.8):
-    # Returns 
-    # 1. list of {image_path, question, answer_id}
-    #    -> train_data and val_data
-    #    -> answer_id in the labels list given
-    #    -> len = n_classes * samples_per_answer
-    # 2. list of answer labels
-    #    -> len = n_classes
-    n_classes = cfg['n_classes']
-    samples_per_answer = cfg['samples_per_answer']
-
-    with open(dataset['questions_path'], 'r') as file:
-        questions = json.load(file)
-
-    with open(dataset['annotations_path'], 'r') as file:
-        annotations = json.load(file)
-
-    questions = questions['questions']
-
-    max_q_len = 0
-    question_id_map = {}  # question_id : question_text
-    for question in questions:
-        question_id_map[question['question_id']] = question['question']
-        max_q_len = max(max_q_len, len(question['question'].split()))
-
-    if cfg['print_logs']:
-        print("Max question length = ", max_q_len)
-    
-    cfg['max_q_len'] = max_q_len
-
-    annotations = annotations['annotations']
-
-    answers = defaultdict(list)  # answer : list of annotation indices
-    for annotation in annotations:
-        answers[annotation['multiple_choice_answer']] += [(annotation['image_id'], annotation['question_id'])]
-
-    # filtering low occuring examples
-    top_answers = deque(maxlen=n_classes)
-    top_samples = deque(maxlen=n_classes)
-
-    for answer, sample in answers.items():
-        if len(sample) >= samples_per_answer and answer.isdigit() == False:
-            top_answers.append(answer)
-            top_samples.append(sample[:samples_per_answer])
-    
-    labels = list(sorted(top_answers))
-    
-    if cfg['print_logs']:
-        print(f'Labels = {labels}')
-
-    train_data = []
-    val_data = []
-    for answer, samples in zip(top_answers, top_samples):
-        for i, sample in enumerate(samples):
-            image_id, question_id = sample
-            if dataset['type'] == 'v2':
-                image_id = str(image_id).zfill(6)
-                ext = '.jpg'
-            elif dataset['type'] == 'abs':
-                image_id = str(image_id).zfill(5)
-                ext = '.png'
-
-
-            image_path = dataset['image_root'] + str(image_id) + ext
-            question = question_id_map[question_id]
-
-            data = train_data if i < train_val_split * len(samples) else val_data
-
-            data.append({
-                'image_path': image_path,
-                'question': question,
-                'answer_id': labels.index(answer)
-            })
-
-    if cfg['print_logs']:
-        print(f'Train size = {len(train_data)} \
-            | Val size = {len(val_data)} | Total = {len(train_data) + len(val_data)}')
-
-        print('-' * 20)
-
-    return train_data, val_data, labels
-"""
-
 
 def data_processing_v2(
         cfg, 
@@ -171,10 +84,22 @@ def data_processing_v2(
     filtered_v2_samples = []
     filtered_abs_samples = []
 
-    for answer in filtered_abs_answers:
-        if answer not in filtered_v2_answers:
-            continue
+    # for answer in filtered_abs_answers:
+    #     if answer not in filtered_v2_answers:
+    #         continue
 
+    #     filtered_answers.append(answer)
+    #     filtered_num_samples.append(len(v2_answers[answer]) + len(abs_answers[answer]))
+    #     filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
+    #     filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
+
+    desired_answers = [
+        'yes', 'no',
+        '0', '1', '2', '3', 
+        'brown', 'red', 'yellow', 'blue',
+    ]
+    
+    for answer in desired_answers:
         filtered_answers.append(answer)
         filtered_num_samples.append(len(v2_answers[answer]) + len(abs_answers[answer]))
         filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
@@ -203,7 +128,13 @@ def data_processing_v2(
             image_path = vqa_v2['image_root'] + str(image_id) + ext
             question = v2_question_id_map[question_id]
 
-            data = v2_train_data if i < train_val_split * len(samples) else v2_val_data
+            # data = v2_train_data if i < train_val_split * len(samples) else v2_val_data
+            if i < cfg['v2_samples_per_answer_train']:
+                data = v2_train_data
+            elif i < cfg['v2_samples_per_answer_train'] + cfg['v2_samples_per_answer_val']:
+                data = v2_val_data
+            else:
+                break
 
             data.append({
                 'image_path': image_path,
@@ -212,7 +143,7 @@ def data_processing_v2(
             })
 
     if cfg['print_logs']:
-        print(f'V2: \tTrain size = {len(v2_train_data)} \
+        print(f'V2: \tTrain size = {len(v2_train_data)}\t \
             | Val size = {len(v2_val_data)} | Total = {len(v2_train_data) + len(v2_val_data)}')
 
     abs_train_data = []
@@ -226,7 +157,13 @@ def data_processing_v2(
             image_path = vqa_abs['image_root'] + str(image_id) + ext
             question = abs_question_id_map[question_id]
 
-            data = abs_train_data if i < train_val_split * len(samples) else abs_val_data
+            # data = abs_train_data if i < train_val_split * len(samples) else abs_val_data
+            if i < cfg['abs_samples_per_answer_train']:
+                data = abs_train_data
+            elif i < cfg['abs_samples_per_answer_train'] + cfg['abs_samples_per_answer_val']:
+                data = abs_val_data
+            else:
+                break
 
             data.append({
                 'image_path': image_path,
@@ -235,7 +172,7 @@ def data_processing_v2(
             })
 
     if cfg['print_logs']:
-        print(f'Abs: \tTrain size = {len(abs_train_data)} \
+        print(f'Abs: \tTrain size = {len(abs_train_data)}\t \
             | Val size = {len(abs_val_data)} | Total = {len(abs_train_data) + len(abs_val_data)}')
 
         print('-' * 20)
