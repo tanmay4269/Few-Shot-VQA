@@ -231,14 +231,14 @@ class VLModel_IS(VLModel):
             use_bn=False, 
             drop_p=0.0,
             embed_dim=self.embed_dim,
-            output_dim=cfg['num_label_types'],
+            output_dim=cfg['n_types'],
             repeat_layers=[0,0],
         )
 
         # append label type info into label_classifier's input
         self.condition_embeddings = nn.Linear(
-            in_features = self.embed_dim + cfg['num_label_types'],
-            out_features = self.embed_dim
+            in_features = 2 * self.embed_dim + cfg['n_types'],
+            out_features = 2 * self.embed_dim
         )
 
     def forward(self, i_tokens, q_tokens, alpha=None):

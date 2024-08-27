@@ -9,9 +9,11 @@ from torch.utils.data import DataLoader
 
 from data.dataset import *
 from models.models import *
+from utils import *
 
 import optuna
-from comet_ml.integration.pytorch import log_model
+
+# from comet_ml.integration.pytorch import log_model
 
 
 vqa_v2 = {
@@ -63,33 +65,35 @@ class Trainer:
         self.cfg = cfg
 
         title = ""
-        for k in [
-            "name",
-            "n_classes",
-            "v2_samples_per_answer",
-            "abs_samples_per_answer",
-            "source_domain",
-            "base_lr",
-            # "domain_adaptation_method",
-        ]:
-            v = self.cfg[k]
-            if k != "base_lr": 
-                title += f"{k}={v}__"
-            else:
-                title += f"{k}={v:.2e}__"
-
+        # for k in [
+        #     "name",
+        #     "n_classes",
+        #     "v2_samples_per_answer",
+        #     "abs_samples_per_answer",
+        #     "source_domain",
+        #     "base_lr",
+        #     # "domain_adaptation_method",
+        # ]:
+        #     v = self.cfg[k]
+        #     if k != "base_lr":
+        #         title += f"{k}={v}__"
+        #     else:
+        #         title += f"{k}={v:.2e}__"
+        title = title.replace(" ", "_")
 
         def random_string(n):
-            chars = np.array(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'))
-            return ''.join(np.random.choice(chars, n))
-        
-        self.cfg["title"] = title.replace(" ", "_") + random_string(8)
+            chars = np.array(
+                list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+            )
+            return "".join(np.random.choice(chars, n))
+
+        self.cfg["title"] = title + random_string(8)
 
         self.cfg["weights_save_path"] = (
-                self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
+            self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
         )
 
-        if cfg['print_logs']:
+        if cfg["print_logs"]:
             print("weights_save_path:", self.cfg["weights_save_path"])
 
     def init_dataloader(self):
@@ -149,7 +153,11 @@ class Trainer:
             loss = self.criterion(logits, label)
             running_loss += loss.item()
 
-            if self.cfg['print_logs'] and num_batches > 16 and i % (num_batches // 4) == 0:
+            if (
+                self.cfg["print_logs"]
+                and num_batches > 16
+                and i % (num_batches // 4) == 0
+            ):
                 print(f"\t Iter [{i}/{num_batches}]\t Loss: {loss.item():.6f}")
 
             self.optimizer.zero_grad()
@@ -236,6 +244,7 @@ class DA_Trainer(Trainer):
         super().__init__(cfg, vqa_v2, vqa_abs)
 
         self.criterion_label = nn.CrossEntropyLoss(reduction="none")
+        self.criterion_label_type = nn.CrossEntropyLoss()
         self.criterion_domain = nn.BCEWithLogitsLoss()
 
     def init_model(self):
@@ -272,7 +281,7 @@ class DA_Trainer(Trainer):
 
     def init_dataloader(self):
         # Init Data
-        (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), labels = (
+        (v2_train_data, v2_val_data), (abs_train_data, abs_val_data) = (
             data_processing_v2(self.cfg, vqa_v2, vqa_abs)
         )
 
@@ -353,29 +362,28 @@ class DA_Trainer(Trainer):
 
     def get_alpha(self, i_dataloader, len_dataloader):
         p = (
-                float(i_dataloader + self.epoch * len_dataloader)
-                / self.num_epochs
-                / len_dataloader
+            float(i_dataloader + self.epoch * len_dataloader)
+            / self.num_epochs
+            / len_dataloader
         )
         return 2.0 / (1.0 + np.exp(-10 * p)) - 1
 
     def get_loss(
-            self,
-            v2_label_logits,
-            v2_domain_logits,
-            abs_label_logits,
-            abs_domain_logits,
-            v2_label,
-            abs_label,
-            v2_domain_label,
-            abs_domain_label,
-            
-            v2_label_type_logits=None,
-            abs_label_type_logits=None,
-            v2_label_type=None,
-            abs_label_type=None,
+        self,
+        v2_label_logits,
+        v2_domain_logits,
+        v2_label_type_logits,
+        abs_label_logits,
+        abs_domain_logits,
+        abs_label_type_logits,
+        v2_label,
+        abs_label,
+        v2_domain_label,
+        abs_domain_label,
+        v2_label_type,
+        abs_label_type,
     ):
-        
+
         v2_label_loss = self.criterion_label(v2_label_logits, v2_label)
         abs_label_loss = self.criterion_label(abs_label_logits, abs_label)
 
@@ -383,10 +391,11 @@ class DA_Trainer(Trainer):
         abs_domain_loss = self.criterion_domain(abs_domain_logits, abs_domain_label)
         domain_loss = 0.5 * v2_domain_loss + 0.5 * abs_domain_loss
 
-        if v2_label_type:
-            v2_label_type_loss = self.criterion_label(v2_label_type_logits, v2_label_type)
-            abs_label_type_loss = self.criterion_label(abs_label_type_logits, abs_label_type)
-            label_type_loss = 0.5 * v2_label_type_loss + 0.5 * abs_label_type_loss
+        v2_label_type_loss = self.criterion_label_type(v2_label_type_logits, v2_label_type)
+        abs_label_type_loss = self.criterion_label_type(
+            abs_label_type_logits, abs_label_type
+        )
+        label_type_loss = 0.5 * v2_label_type_loss + 0.5 * abs_label_type_loss
 
         v2_domain_prob = F.sigmoid(v2_domain_logits)
         abs_domain_prob = F.sigmoid(abs_domain_logits)
@@ -407,31 +416,26 @@ class DA_Trainer(Trainer):
 
         label_loss = 0.5 * weighted_v2_label_loss + 0.5 * weighted_abs_label_loss
 
-        if v2_label_type:
-            total_loss = 0.5 * (0.5 * label_loss + 0.5 * label_type_loss) + 0.5 * domain_loss
-        else:
-            total_loss = 0.5 * label_loss + 0.5 * domain_loss
+        total_loss = (
+            0.5 * (0.5 * label_loss + 0.5 * label_type_loss) + 0.5 * domain_loss
+        )
 
-        if not self.cfg['use_label_type_classifier']:
-            return label_loss, domain_loss, total_loss
-        else:
-            return label_loss, domain_loss, label_type_loss, total_loss
+        return label_loss, domain_loss, label_type_loss, total_loss
 
     def get_accuracy(
-            self,
-            v2_label_logits,
-            v2_domain_logits,
-            abs_label_logits,
-            abs_domain_logits,
-            v2_label,
-            abs_label,
-            v2_domain_label,
-            abs_domain_label,
-            
-            v2_label_type_logits=None,
-            abs_label_type_logits=None,
-            v2_label_type=None,
-            abs_label_type=None,
+        self,
+        v2_label_logits,
+        v2_domain_logits,
+        v2_label_type_logits,
+        abs_label_logits,
+        abs_domain_logits,
+        abs_label_type_logits,
+        v2_label,
+        abs_label,
+        v2_domain_label,
+        abs_domain_label,
+        v2_label_type,
+        abs_label_type,
     ):
         # V2 - label
         _, v2_predicted_indices = torch.max(v2_label_logits, dim=1)
@@ -463,11 +467,13 @@ class DA_Trainer(Trainer):
 
         abs_correct_type = is_correct_type_abs.sum().item()
 
-        # Total - label 
+        # Total - label
         total = v2_label.shape[0] + abs_label.shape[0]
         correct = is_correct_v2.sum().item() + is_correct_abs.sum().item()
 
-        correct_type = is_correct_type_v2.sum().item() + is_correct_type_abs.sum().item()
+        correct_type = (
+            is_correct_type_v2.sum().item() + is_correct_type_abs.sum().item()
+        )
 
         # domain
         v2_domain_pred = F.sigmoid(v2_domain_logits) > 0.5
@@ -487,31 +493,24 @@ class DA_Trainer(Trainer):
             correct,
             domain_total,
             domain_correct,
+            v2_correct_type,
+            abs_correct_type,
+            correct_type,
         ]
-
-        if self.cfg['use_label_type_classifier']:
-            type_accuracies = [
-                v2_correct_type,
-                abs_correct_type,
-                correct_type,
-            ]
-
-            accuracies += type_accuracies
 
         return accuracies
 
     def process_input(
-            self,
-            v2_i_tokens,
-            v2_q_tokens,
-            v2_label,
-            abs_i_tokens,
-            abs_q_tokens,
-            abs_label,
-            alpha,
-
-            v2_label_type=None,
-            abs_label_type=None,
+        self,
+        v2_i_tokens,
+        v2_q_tokens,
+        v2_label,
+        v2_label_type,
+        abs_i_tokens,
+        abs_q_tokens,
+        abs_label,
+        abs_label_type,
+        alpha,
     ):
         v2_i_tokens = {key: value.cuda() for key, value in v2_i_tokens.items()}
         v2_q_tokens = {key: value.cuda() for key, value in v2_q_tokens.items()}
@@ -520,50 +519,31 @@ class DA_Trainer(Trainer):
         abs_q_tokens = {key: value.cuda() for key, value in abs_q_tokens.items()}
 
         v2_logits = self.model(v2_i_tokens, v2_q_tokens, alpha)
-        abs_logits = self.model(
-            abs_i_tokens, abs_q_tokens, alpha
-        )
+        abs_logits = self.model(abs_i_tokens, abs_q_tokens, alpha)
 
         v2_label, abs_label = v2_label.cuda(), abs_label.cuda()
         v2_label_type, abs_label_type = v2_label_type.cuda(), abs_label_type.cuda()
 
         v2_domain_label = self.v2_domain_label.repeat(v2_label.shape[0], 1).cuda()
         abs_domain_label = self.abs_domain_label.repeat(abs_label.shape[0], 1).cuda()
-        
-        if not self.cfg['use_label_type_classifier']:
-            v2_label_logits, v2_domain_logits = v2_logits
-            abs_label_logits, abs_domain_logits = abs_logits
 
-            args = [
-                v2_label_logits,
-                v2_domain_logits,
-                abs_label_logits,
-                abs_domain_logits,
-                v2_label,
-                abs_label,
-                v2_domain_label,
-                abs_domain_label,
-            ]
-        else:
-            v2_label_logits, v2_domain_logits, v2_label_type_logits = v2_logits
-            abs_label_logits, abs_domain_logits, abs_label_type_logits = abs_logits
+        v2_label_logits, v2_domain_logits, v2_label_type_logits = v2_logits
+        abs_label_logits, abs_domain_logits, abs_label_type_logits = abs_logits
 
-            args = [
-                v2_label_logits,
-                v2_domain_logits,
-                abs_label_logits,
-                abs_domain_logits,
-                v2_label,
-                abs_label,
-                v2_domain_label,
-                abs_domain_label,
-
-                v2_label_type_logits,
-                abs_label_type_logits,
-                v2_label_type,
-                abs_label_type,
-            ]
-
+        args = [
+            v2_label_logits,
+            v2_domain_logits,
+            v2_label_type_logits,
+            abs_label_logits,
+            abs_domain_logits,
+            abs_label_type_logits,
+            v2_label,
+            abs_label,
+            v2_domain_label,
+            abs_domain_label,
+            v2_label_type,
+            abs_label_type,
+        ]
 
         losses = self.get_loss(*args)
 
@@ -573,35 +553,42 @@ class DA_Trainer(Trainer):
 
     def train_epoch(self):
         self.model.train()
-        label_running_loss = 0.0
-        domain_running_loss = 0.0
-        total_running_loss = 0.0
+        label_loss_meter = AverageMeter()
+        domain_loss_meter = AverageMeter()
+        label_type_loss_meter = AverageMeter()
+        total_loss_meter = AverageMeter()
 
         for i, (
-                (v2_i_tokens, v2_q_tokens, v2_label, v2_label_type),
-                (abs_i_tokens, abs_q_tokens, abs_label, abs_label_type),
+            (v2_i_tokens, v2_q_tokens, v2_label, v2_label_type),
+            (abs_i_tokens, abs_q_tokens, abs_label, abs_label_type),
         ) in enumerate(self.train_dataloader):
 
             self.alpha = self.get_alpha(i, self.num_train_batches)
 
-            (label_loss, domain_loss, label_type_loss, total_loss), _ = self.process_input(
-                v2_i_tokens,
-                v2_q_tokens,
-                v2_label,
-                abs_i_tokens,
-                abs_q_tokens,
-                abs_label,
-                self.alpha,
-
-                v2_label_type,
-                abs_label_type,
+            (label_loss, domain_loss, label_type_loss, total_loss), _ = (
+                self.process_input(
+                    v2_i_tokens,
+                    v2_q_tokens,
+                    v2_label,
+                    v2_label_type,
+                    abs_i_tokens,
+                    abs_q_tokens,
+                    abs_label,
+                    abs_label_type,
+                    self.alpha,
+                )
             )
 
-            label_running_loss += label_loss.item()
-            domain_running_loss += domain_loss.item()
-            total_running_loss += total_loss.item()
+            label_loss_meter.update(label_loss.item())
+            domain_loss_meter.update(domain_loss.item())
+            label_type_loss_meter.update(label_type_loss.item())
+            total_loss_meter.update(total_loss.item())
 
-            if self.cfg['print_logs'] and self.num_train_batches > 4 and i % (self.num_train_batches // 4) == 0:
+            if (
+                self.cfg["print_logs"]
+                and self.num_train_batches > 4
+                and i % (self.num_train_batches // 4) == 0
+            ):
                 print(
                     f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
                 )
@@ -610,30 +597,28 @@ class DA_Trainer(Trainer):
             total_loss.backward()
             self.optimizer.step()
 
-        avg_label_loss = label_running_loss / self.num_train_batches
-        avg_domain_loss = domain_running_loss / self.num_train_batches
-        avg_total_loss = total_running_loss / self.num_train_batches
-
-        return avg_label_loss, avg_domain_loss, avg_total_loss
+        return (
+            label_loss_meter.avg,
+            domain_loss_meter.avg,
+            label_type_loss_meter.avg,
+            total_loss_meter.avg,
+        )
 
     def eval_epoch(self):
         v2_correct, v2_total = 0, 0
         abs_correct, abs_total = 0, 0
+        label_type_correct = 0
         correct, total = 0, 0
         domain_correct, domain_total = 0, 0
 
         running_loss = 0.0
 
         for i, (
-                (v2_i_tokens, v2_q_tokens, v2_label),
-                (
-                        abs_i_tokens,
-                        abs_q_tokens,
-                        abs_label,
-                ),
+            (v2_i_tokens, v2_q_tokens, v2_label, v2_label_type),
+            (abs_i_tokens, abs_q_tokens, abs_label, abs_label_type),
         ) in enumerate(self.val_dataloader):
             (
-                (label_loss, domain_loss, total_loss),
+                (label_loss, domain_loss, label_type_loss, total_loss),
                 (
                     _v2_total,
                     _v2_correct,
@@ -643,23 +628,33 @@ class DA_Trainer(Trainer):
                     _correct,
                     _domain_total,
                     _domain_correct,
+                    _v2_correct_type,
+                    _abs_correct_type,
+                    _correct_type,
                 ),
             ) = self.process_input(
                 v2_i_tokens,
                 v2_q_tokens,
                 v2_label,
+                v2_label_type,
                 abs_i_tokens,
                 abs_q_tokens,
                 abs_label,
+                abs_label_type,
                 self.alpha,
             )
 
             v2_total += _v2_total
             v2_correct += _v2_correct
+
             abs_total += _abs_total
             abs_correct += _abs_correct
+
+            label_type_correct += _correct_type
+
             total += _total
             correct += _correct
+
             domain_total += _domain_total
             domain_correct += _domain_correct
 
@@ -668,11 +663,20 @@ class DA_Trainer(Trainer):
         eval_loss = running_loss / self.num_val_batches
         v2_accuracy = v2_correct / v2_total
         abs_accuracy = abs_correct / abs_total
+        label_type_accuracy = label_type_correct / total
+
         total_accuracy = correct / total
 
         domain_accuracy = domain_correct / domain_total
 
-        return eval_loss, v2_accuracy, abs_accuracy, total_accuracy, domain_accuracy
+        return (
+            eval_loss, 
+            v2_accuracy, 
+            abs_accuracy, 
+            label_type_accuracy, 
+            total_accuracy, 
+            domain_accuracy
+        )
 
     def train(self, show_plot, optuna_trial=None, comet_expt=None):
         min_eval_loss = float("inf")
@@ -684,56 +688,62 @@ class DA_Trainer(Trainer):
             )
             self.val_dataloader = zip(self.v2_val_dataloader, self.abs_val_dataloader)
 
-            label_loss, domain_loss, total_loss = self.train_epoch()
+            label_loss, domain_loss, label_type_loss, total_loss = self.train_epoch()
             with torch.no_grad():
                 (
                     eval_loss,
                     v2_accuracy,
                     abs_accuracy,
+                    label_type_accuracy,
                     total_accuracy,
                     domain_accuracy,
                 ) = self.eval_epoch()
 
             self.scheduler.step()
 
-            self.train_losses.append((label_loss, domain_loss, total_loss))
+            self.train_losses.append((label_loss, domain_loss, label_type_loss, total_loss))
             self.eval_losses.append(eval_loss)
             self.accuracies.append(
-                (v2_accuracy, abs_accuracy, total_accuracy, domain_accuracy)
+                (v2_accuracy, abs_accuracy, label_type_accuracy, total_accuracy, domain_accuracy)
             )
 
             # Plotting
             if show_plot and self.epoch > 0 and self.epoch % 10 == 0:
                 self.plot(self.epoch + 1)
-            
+
             # Logging
-            if self.cfg['print_logs']:
+            if self.cfg["print_logs"]:
                 print(
                     f"Epoch [{self.epoch + 1}/{self.num_epochs}]\t \
                         Avg Train Loss: {total_loss:.6f}\t \
                         Avg Eval Loss: {eval_loss:.6f}\t \
                         Avg Domain Accuracy: {domain_accuracy:.2f}\t \
+                        Avg Label Type Accuracy: {label_type_accuracy:.2f}\t \
                         Avg Eval Accuracy: {total_accuracy:.2f}"
                 )
-            
+
             # Comet Logging
             if comet_expt:
-                comet_expt.log_metrics({
-                    'Loss/Train_label': label_loss,
-                    'Loss/Train_domain': domain_loss,
-                    'Loss/Train_total': total_loss,
-                    'Loss/Eval': eval_loss,
-                    'Accuracy/Domain': domain_accuracy,
-                    'Accuracy/v2_label': v2_accuracy,
-                    'Accuracy/abs_label': abs_accuracy,
-                    'Accuracy/avg_label': total_accuracy
-                }, step=self.epoch)
+                comet_expt.log_metrics(
+                    {
+                        "Loss/train_label": label_loss,
+                        "Loss/train_domain": domain_loss,
+                        "Loss/train_label_type": label_type_loss,
+                        "Loss/train_total": total_loss,
+                        "Loss/Eval": eval_loss,
+                        "EvalAccuracy/domain": domain_accuracy,
+                        "EvalAccuracy/v2_label": v2_accuracy,
+                        "EvalAccuracy/abs_label": abs_accuracy,
+                        "EvalAccuracy/label_type": label_type_accuracy,
+                        "EvalAccuracy/avg_label": total_accuracy,
+                    },
+                    step=self.epoch,
+                )
 
-            
             # Optuna Logging
             if optuna_trial:
                 optuna_trial.report(eval_loss, self.epoch)
-                
+
                 if optuna_trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
 
@@ -766,79 +776,75 @@ class DA_Trainer(Trainer):
         return eval_loss
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cfg = {
-        'name': 'DANN',
-
-        ### DataLoader ###
-        'n_classes': 10,
-        'n_types': 6,
-
-        'v2_samples_per_answer': 150,
-        'abs_samples_per_answer': 150,
-        'source_domain': 'v2',
+        "name": "DANN",
         
+        ### DataLoader ###
+        "n_classes": 12,
+        "n_types": 4,
+        #
+        "v2_samples_per_answer": 300,
+        "abs_samples_per_answer": 300,
+        #
+        "v2_samples_per_answer_train": 150,
+        "abs_samples_per_answer_train": 150,
+        #
+        "v2_samples_per_answer_val": 50,
+        "abs_samples_per_answer_val": 50,
+        "source_domain": "v2",
         
         ### VLModel ###
-        'image_encoder': 'facebook/dinov2-base',
-        'text_encoder': 'bert-base-uncased',
-        
+        "image_encoder": "facebook/dinov2-base",
+        "text_encoder": "bert-base-uncased",
+        #
         ## Embedder
-        'num_attn_heads': 8,
-        'fusion_mode': 'cat',
-        'num_stacked_attn': 1, 
-        
-        'criss_cross__drop_p': 0.0,
-        'post_concat__drop_p': 0.0, 
-        'embed_attn__add_residual': False,
-        'embed_attn__drop_p': 0.0,
-
+        "num_attn_heads": 8,
+        "fusion_mode": "cat",
+        "num_stacked_attn": 1,
+        "criss_cross__drop_p": 0.0,
+        "post_concat__drop_p": 0.0,
+        "embed_attn__add_residual": False,
+        "embed_attn__drop_p": 0.0,
         ## Label Classifier
         # 'use_label_type_classifier': False,
         # 'use_label_type_classifier': True,
-        'num_label_types': 5,
-
-        'label_classifier__use_bn': True,
-        'label_classifier__drop_p': 0.0,
-        'label_classifier__repeat_layers': [0, 0], 
-
+        "label_classifier__use_bn": True,
+        "label_classifier__drop_p": 0.0,
+        "label_classifier__repeat_layers": [0, 0],
         ## Domain Classifier
-        'domain_classifier__use_bn': True,
-        'domain_classifier__drop_p': 0.5,
-        'domain_classifier__repeat_layers': [2, 2], 
-
-
+        "domain_classifier__use_bn": True,
+        "domain_classifier__drop_p": 0.5,
+        "domain_classifier__repeat_layers": [2, 2],
+        
         ### Objective ###
-        'domain_adaptation_method': 'domain_adversarial',  # 'naive', 'importance_sampling', 'domain_adversarial'
-
-
+        "domain_adaptation_method": "domain_adversarial",  # 'naive', 'importance_sampling', 'domain_adversarial'
+        
         ### Trainer ###
-        'relaxation_period': -1,
-
-        'epochs': 30,
-        'batch_size': 150,
-        'base_lr': 0.0005,
-        'weight_decay': 1e-5,
+        "relaxation_period": -1,
+        "epochs": 30,
+        "batch_size": 150,
+        "base_lr": 0.0005,
+        "weight_decay": 1e-5,
         
         ### Logging ###
-        'print_logs': False,
-        'show_plot': True,
-        
-        'weights_save_root': './weights/raw'
+        # "print_logs": False,
+        "print_logs": True,
+        "show_plot": True,
+        "weights_save_root": "./weights/raw",
     }
-
 
     if True:
         # v2
-        cfg['source_domain'] = 'v2'
+        cfg["source_domain"] = "v2"
         trainer = DA_Trainer(cfg, vqa_v2, vqa_abs)
-        v2_ckpt_path = cfg['weights_save_path']
+        v2_ckpt_path = cfg["weights_save_path"]
 
         trainer.train(show_plot=True)
 
         # abs
-        cfg['source_domain'] = 'abs'
+        cfg["source_domain"] = "abs"
         trainer = DA_Trainer(cfg, vqa_v2, vqa_abs)
-        abs_ckpt_path = cfg['weights_save_path']
+        abs_ckpt_path = cfg["weights_save_path"]
 
         trainer.train(show_plot=False)
