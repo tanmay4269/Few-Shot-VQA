@@ -93,11 +93,13 @@ def data_processing_v2(
     #     filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
     #     filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
 
-    desired_answers = [
-        'yes', 'no',
-        '0', '1', '2', '3', 
-        'brown', 'red', 'yellow', 'blue',
-    ]
+    # desired_answers = [
+    #     'yes', 'no',
+    #     '0', '1', '2', '3', 
+    #     'brown', 'red', 'yellow', 'blue',
+    # ]
+    
+    desired_answers = cfg['labels']
     
     for answer in desired_answers:
         filtered_answers.append(answer)
@@ -112,7 +114,7 @@ def data_processing_v2(
         print(f'Updating n_classes from {n_classes} to {len(filtered_answers)}')
         cfg['n_classes'] = n_classes = len(filtered_answers)
 
-    labels = filtered_answers[:n_classes]
+    labels = filtered_answers
     
     if cfg['print_logs']:
         print(f'Labels: {labels}')
@@ -128,11 +130,10 @@ def data_processing_v2(
             image_path = vqa_v2['image_root'] + str(image_id) + ext
             question = v2_question_id_map[question_id]
 
-            # data = v2_train_data if i < train_val_split * len(samples) else v2_val_data
-            if i < cfg['v2_samples_per_answer_train']:
-                data = v2_train_data
-            elif i < cfg['v2_samples_per_answer_train'] + cfg['v2_samples_per_answer_val']:
+            if i < cfg['v2_samples_per_answer_val']:  # To keep the val set fixed
                 data = v2_val_data
+            elif i < cfg['v2_samples_per_answer_val'] + cfg['v2_samples_per_answer_train']:
+                data = v2_train_data
             else:
                 break
 
@@ -157,11 +158,10 @@ def data_processing_v2(
             image_path = vqa_abs['image_root'] + str(image_id) + ext
             question = abs_question_id_map[question_id]
 
-            # data = abs_train_data if i < train_val_split * len(samples) else abs_val_data
-            if i < cfg['abs_samples_per_answer_train']:
-                data = abs_train_data
-            elif i < cfg['abs_samples_per_answer_train'] + cfg['abs_samples_per_answer_val']:
+            if i < cfg['abs_samples_per_answer_val']:  # To keep the val set fixed
                 data = abs_val_data
+            elif i < cfg['abs_samples_per_answer_val'] + cfg['abs_samples_per_answer_train']:
+                data = abs_train_data
             else:
                 break
 

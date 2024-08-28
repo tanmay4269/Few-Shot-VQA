@@ -531,10 +531,10 @@ class DA_Trainer(Trainer):
             domain_running_loss += domain_loss.item()
             total_running_loss += total_loss.item()
 
-            if self.cfg['print_logs'] and self.num_train_batches > 4 and i % (self.num_train_batches // 4) == 0:
-                print(
-                    f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
-                )
+            # if self.cfg['print_logs'] and self.num_train_batches > 4 and i % (self.num_train_batches // 4) == 0:
+            #     print(
+            #         f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
+            #     )
 
             self.optimizer.zero_grad()
             total_loss.backward()
@@ -701,7 +701,7 @@ if __name__ == '__main__':
         'name': 'DANN',
 
         ### DataLoader ###
-        'n_classes': 10,
+        'n_classes': 6,
         'v2_samples_per_answer': 300,
         'abs_samples_per_answer': 300,
 

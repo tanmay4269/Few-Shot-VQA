@@ -1,3 +1,4 @@
+import comet_ml
 from comet_ml import Experiment
 
 import torch
@@ -41,9 +42,9 @@ class OptunaTrainer:
             'abs_samples_per_answer': 300,
 
             'v2_samples_per_answer_train': 100,
-            'v2_samples_per_answer_val': 50,
-
             'abs_samples_per_answer_train': 100,
+
+            'v2_samples_per_answer_val': 50,
             'abs_samples_per_answer_val': 50,
             
             'source_domain': 'abs',
@@ -148,10 +149,9 @@ class OptunaTrainer:
     def objective(self, trial):
         trainer = self.init_trainer(trial)
 
-        experiment = None
         if self.optuna_cfg['comet_logging']:
             config = trainer.cfg
-            experiment = Experiment(
+            experiment = comet_ml.OfflineExperiment(
                 api_key="vGoIrJjMbmcYScW8fWPCX5hU5",
                 project_name="FS-VQA",
                 workspace="tanmay4269"
