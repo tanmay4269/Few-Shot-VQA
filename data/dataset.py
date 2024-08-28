@@ -129,12 +129,7 @@ def data_processing_v2(
     #         'others': ['soccer', 'beach', 'left', 'right', 'nothing'],
     #     }
 
-    label_type_to_labels = {
-        'yes_no': ['yes', 'no'],
-        'numbers': ['0', '1', '2', '3'],
-        'colors': ['red', 'yellow', 'blue', 'green'],
-        'living_things': ['dog', 'cat'],
-    }
+    label_type_to_labels = cfg['label_type_to_labels']
 
     label_types = list(label_type_to_labels.keys())
 

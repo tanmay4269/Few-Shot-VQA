@@ -340,7 +340,8 @@ class DA_Trainer(Trainer):
 
         ax[0].plot(np.arange(epoch), train_losses[:, 0], label="Label Loss")
         ax[0].plot(np.arange(epoch), train_losses[:, 1], label="Domain Loss")
-        ax[0].plot(np.arange(epoch), train_losses[:, 2], label="Train Loss")
+        ax[0].plot(np.arange(epoch), train_losses[:, 2], label="Label Type Loss")
+        ax[0].plot(np.arange(epoch), train_losses[:, 3], label="Train Loss")
         ax[0].plot(np.arange(epoch), self.eval_losses, label="Eval Loss")
         ax[0].legend()
         ax[0].set_title("Losses")
@@ -350,8 +351,9 @@ class DA_Trainer(Trainer):
         accuracies = np.array(self.accuracies)
         ax[1].plot(np.arange(epoch), accuracies[:, 0], label="V2 Accuracy")
         ax[1].plot(np.arange(epoch), accuracies[:, 1], label="Abs Accuracy")
-        ax[1].plot(np.arange(epoch), accuracies[:, 2], label="Total Accuracy")
-        ax[1].plot(np.arange(epoch), accuracies[:, 3], label="Domain Accuracy")
+        ax[1].plot(np.arange(epoch), accuracies[:, 2], label="Label Type Accuracy")
+        ax[1].plot(np.arange(epoch), accuracies[:, 3], label="Total Accuracy")
+        ax[1].plot(np.arange(epoch), accuracies[:, 4], label="Domain Accuracy")
         ax[1].legend()
         ax[1].set_title("Accuracies")
         ax[1].set_xlabel("Epoch")
@@ -584,14 +586,14 @@ class DA_Trainer(Trainer):
             label_type_loss_meter.update(label_type_loss.item())
             total_loss_meter.update(total_loss.item())
 
-            if (
-                self.cfg["print_logs"]
-                and self.num_train_batches > 4
-                and i % (self.num_train_batches // 4) == 0
-            ):
-                print(
-                    f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
-                )
+            # if (
+            #     self.cfg["print_logs"]
+            #     and self.num_train_batches > 4
+            #     and i % (self.num_train_batches // 4) == 0
+            # ):
+            #     print(
+            #         f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
+            #     )
 
             self.optimizer.zero_grad()
             total_loss.backward()
@@ -719,7 +721,7 @@ class DA_Trainer(Trainer):
                         Avg Eval Loss: {eval_loss:.6f}\t \
                         Avg Domain Accuracy: {domain_accuracy:.2f}\t \
                         Avg Label Type Accuracy: {label_type_accuracy:.2f}\t \
-                        Avg Eval Accuracy: {total_accuracy:.2f}"
+                        Avg Total Eval Accuracy: {total_accuracy:.2f}"
                 )
 
             # Comet Logging
@@ -779,10 +781,17 @@ class DA_Trainer(Trainer):
 if __name__ == "__main__":
     cfg = {
         "name": "DANN",
-        
+        #
         ### DataLoader ###
-        "n_classes": 12,
-        "n_types": 4,
+        # "n_classes": 12,
+        # "n_types": 4,
+        "n_classes": 4,
+        "n_types": 2,
+
+        'label_type_to_labels' : {
+            'yes_no': ['yes', 'no'],
+            'colors': ['red', 'blue'],
+        },
         #
         "v2_samples_per_answer": 300,
         "abs_samples_per_answer": 300,
@@ -806,27 +815,29 @@ if __name__ == "__main__":
         "post_concat__drop_p": 0.0,
         "embed_attn__add_residual": False,
         "embed_attn__drop_p": 0.0,
+        #
         ## Label Classifier
         # 'use_label_type_classifier': False,
         # 'use_label_type_classifier': True,
         "label_classifier__use_bn": True,
         "label_classifier__drop_p": 0.0,
         "label_classifier__repeat_layers": [0, 0],
+        #
         ## Domain Classifier
         "domain_classifier__use_bn": True,
         "domain_classifier__drop_p": 0.5,
         "domain_classifier__repeat_layers": [2, 2],
-        
+        #
         ### Objective ###
         "domain_adaptation_method": "domain_adversarial",  # 'naive', 'importance_sampling', 'domain_adversarial'
-        
+        #
         ### Trainer ###
         "relaxation_period": -1,
         "epochs": 30,
         "batch_size": 150,
         "base_lr": 0.0005,
         "weight_decay": 1e-5,
-        
+        #
         ### Logging ###
         # "print_logs": False,
         "print_logs": True,

@@ -241,6 +241,65 @@ class VLModel_IS(VLModel):
             out_features = 2 * self.embed_dim
         )
 
+        self.label_classifier = self.init_label_classifier(
+            cfg["label_classifier__use_bn"],
+            cfg["label_classifier__drop_p"],
+            self.embed_dim,
+            cfg['n_classes'],
+            repeat_layers=cfg['label_classifier__repeat_layers']
+        )
+
+    def init_label_classifier(
+            self, 
+            use_bn, 
+            drop_p, 
+            embed_dim, 
+            output_dim, 
+            repeat_layers=[0,0]
+        ):
+        if self.fusion_mode == "cat":
+            embed_dim *= 2
+
+        ffn = nn.Sequential()
+
+        def get_layer(in_, out_=None):
+            if out_ is None:
+                out_ = in_
+
+            layer = [
+                nn.Linear(in_, out_),
+                nn.ReLU(),
+            ]
+
+            if use_bn:
+                layer.append(nn.BatchNorm1d(out_))
+
+            layer.append(nn.Dropout(p=drop_p))
+
+            return layer
+
+        # Early Layers
+        ffn.extend(get_layer(embed_dim))
+        for _ in range(repeat_layers[0]):
+            ffn.extend(get_layer(embed_dim))
+
+        # Middle Layers
+        ffn.extend(get_layer(embed_dim, embed_dim // 2))
+        for _ in range(repeat_layers[1]):
+            ffn.extend(get_layer(embed_dim // 2, embed_dim // 2))
+
+        # Final Layers
+        if self.fusion_mode == "cat":
+            ffn.extend(get_layer(embed_dim // 2, embed_dim // 4))
+            ffn.append(nn.Linear(embed_dim // 4, output_dim))
+        else:
+            ffn.append(nn.Linear(embed_dim // 2, output_dim))
+
+        return ffn
+    
+    def label_classifier_forward(self):
+        
+
     def forward(self, i_tokens, q_tokens, alpha=None):
         embedding = self.get_embedding(i_tokens, q_tokens)
         embedding = embedding.squeeze(1)
