@@ -8,59 +8,144 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
+import albumentations as A
 from transformers import AutoImageProcessor, BertTokenizer
 
 
-def data_processing_v2(
-        cfg, 
-        vqa_v2, vqa_abs, 
-        train_val_split=0.8):
+class VQADataset(Dataset):
+    def __init__(self, cfg, data):
+        self.cfg = cfg
+        self.data = data
 
-    n_classes = cfg['n_classes']
-    v2_samples_per_answer = cfg['v2_samples_per_answer']
-    abs_samples_per_answer = cfg['abs_samples_per_answer']
+        min_size = 100
+        max_size = 200
 
-    with open(vqa_v2['questions_path'], 'r') as file:
+        self.augmentation = A.Compose(
+            [
+                A.CoarseDropout(
+                    max_holes=1,
+                    min_holes=1,
+                    
+                    max_height=max_size,
+                    max_width=max_size,
+                    min_height=min_size,
+                    min_width=min_size,
+                    
+                    fill_value=0,
+                    mask_fill_value=None,
+                    p=1.0
+                ),
+            ]
+        )
+
+        self.i_processor = AutoImageProcessor.from_pretrained(cfg["image_encoder"])
+        self.q_tokenizer = BertTokenizer.from_pretrained(
+            cfg["text_encoder"], clean_up_tokenization_spaces=True
+        )
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        data_item = self.data[idx]
+
+        idx_tr = torch.tensor(data_item["answer_id"])
+        label = F.one_hot(idx_tr, num_classes=self.cfg["n_classes"]).float()
+
+        image = Image.open(data_item["image_path"]).convert("RGB")
+        image = np.array(image)
+        
+        ### Debug ###
+        # A.cv2.imwrite("og_image.png", A.cv2.cvtColor(image, A.cv2.COLOR_RGB2BGR))
+        # --- #
+        
+        if self.cfg['mask_patches']:
+            augmented = self.augmentation(image=image)
+            image = augmented['image']
+
+        ### Debug ###        
+        # A.cv2.imwrite("augmented_image.png", A.cv2.cvtColor(image, A.cv2.COLOR_RGB2BGR))
+        # print('Question:', data_item['question'])
+        ###-------###
+
+        i_tokens = self.i_processor(images=image, return_tensors="pt")
+        q_tokens = self.q_tokenizer(
+            data_item["question"],
+            padding="max_length",
+            max_length=self.cfg["max_q_len"],
+            truncation=True,
+            return_tensors="pt",
+        )
+
+        # dirty way to fix dimention issue:
+        i_tokens["pixel_values"] = i_tokens["pixel_values"].squeeze(0)
+
+        for key, value in q_tokens.items():
+            q_tokens[key] = value.squeeze(0)
+
+        return i_tokens, q_tokens, label
+
+
+class DA_DataLoader:
+    def __init__(self, v2_loader, abs_loader):
+        self.len = len(v2_loader) + len(abs_loader)
+        return zip(v2_loader, abs_loader)
+
+    def __len__(self):
+        return self.len
+
+
+def data_processing_v2(cfg, vqa_v2, vqa_abs, train_val_split=0.8):
+
+    n_classes = cfg["n_classes"]
+    v2_samples_per_answer = cfg["v2_samples_per_answer"]
+    abs_samples_per_answer = cfg["abs_samples_per_answer"]
+
+    with open(vqa_v2["questions_path"], "r") as file:
         v2_questions = json.load(file)
 
-    with open(vqa_v2['annotations_path'], 'r') as file:
+    with open(vqa_v2["annotations_path"], "r") as file:
         v2_annotations = json.load(file)
 
-    with open(vqa_abs['questions_path'], 'r') as file:
+    with open(vqa_abs["questions_path"], "r") as file:
         abs_questions = json.load(file)
 
-    with open(vqa_abs['annotations_path'], 'r') as file:
+    with open(vqa_abs["annotations_path"], "r") as file:
         abs_annotations = json.load(file)
 
-    v2_questions = v2_questions['questions']
-    v2_annotations = v2_annotations['annotations']
+    v2_questions = v2_questions["questions"]
+    v2_annotations = v2_annotations["annotations"]
 
-    abs_questions = abs_questions['questions']
-    abs_annotations = abs_annotations['annotations']
+    abs_questions = abs_questions["questions"]
+    abs_annotations = abs_annotations["annotations"]
 
     max_q_len = 0
     v2_question_id_map = {}  # question_id : question_text
     abs_question_id_map = {}
 
     for question in v2_questions:
-        v2_question_id_map[question['question_id']] = question['question']
-        max_q_len = max(max_q_len, len(question['question'].split()))
-    
-    for question in abs_questions:
-        abs_question_id_map[question['question_id']] = question['question']
-        max_q_len = max(max_q_len, len(question['question'].split()))
+        v2_question_id_map[question["question_id"]] = question["question"]
+        max_q_len = max(max_q_len, len(question["question"].split()))
 
-    cfg['max_q_len'] = max_q_len
+    for question in abs_questions:
+        abs_question_id_map[question["question_id"]] = question["question"]
+        max_q_len = max(max_q_len, len(question["question"].split()))
+
+    cfg["max_q_len"] = max_q_len
 
     # Collecting answers
     v2_answers = defaultdict(list)  # answer : list of annotation indices
     abs_answers = defaultdict(list)
 
     for annotation in v2_annotations:
-        v2_answers[annotation['multiple_choice_answer']] += [(annotation['image_id'], annotation['question_id'])]
+        v2_answers[annotation["multiple_choice_answer"]] += [
+            (annotation["image_id"], annotation["question_id"])
+        ]
 
     for annotation in abs_annotations:
-        abs_answers[annotation['multiple_choice_answer']] += [(annotation['image_id'], annotation['question_id'])]
+        abs_answers[annotation["multiple_choice_answer"]] += [
+            (annotation["image_id"], annotation["question_id"])
+        ]
 
     # Filtering answers
     filtered_v2_answers = []
@@ -93,137 +178,104 @@ def data_processing_v2(
     #     filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
     #     filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
 
-    # desired_answers = [
-    #     'yes', 'no',
-    #     '0', '1', '2', '3', 
-    #     'brown', 'red', 'yellow', 'blue',
-    # ]
-    
-    desired_answers = cfg['labels']
-    
+
+    desired_answers = cfg["labels"]
+
     for answer in desired_answers:
         filtered_answers.append(answer)
         filtered_num_samples.append(len(v2_answers[answer]) + len(abs_answers[answer]))
         filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
         filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
 
-    if cfg['print_logs']:
-        print(f'Number of Common Labels = {len(filtered_answers)} | n_classes = {n_classes}')
+    if cfg["print_logs"]:
+        print(
+            f"Number of Common Labels = {len(filtered_answers)} | n_classes = {n_classes}"
+        )
 
-    if cfg['print_logs'] and len(filtered_answers) < n_classes:
-        print(f'Updating n_classes from {n_classes} to {len(filtered_answers)}')
-        cfg['n_classes'] = n_classes = len(filtered_answers)
+    if cfg["print_logs"] and len(filtered_answers) < n_classes:
+        print(f"Updating n_classes from {n_classes} to {len(filtered_answers)}")
+        cfg["n_classes"] = n_classes = len(filtered_answers)
 
     labels = filtered_answers
-    
-    if cfg['print_logs']:
-        print(f'Labels: {labels}')
+
+    if cfg["print_logs"]:
+        print(f"Labels: {labels}")
 
     v2_train_data = []
     v2_val_data = []
-    for answer, samples in zip(filtered_answers[:n_classes], filtered_v2_samples[:n_classes]):
+    for answer, samples in zip(
+        filtered_answers[:n_classes], filtered_v2_samples[:n_classes]
+    ):
         for i, sample in enumerate(samples):
             image_id, question_id = sample
             image_id = str(image_id).zfill(6)
-            ext = '.jpg'
+            ext = ".jpg"
 
-            image_path = vqa_v2['image_root'] + str(image_id) + ext
+            image_path = vqa_v2["image_root"] + str(image_id) + ext
             question = v2_question_id_map[question_id]
 
-            if i < cfg['v2_samples_per_answer_val']:  # To keep the val set fixed
+            if i < cfg["v2_samples_per_answer_val"]:  # To keep the val set fixed
                 data = v2_val_data
-            elif i < cfg['v2_samples_per_answer_val'] + cfg['v2_samples_per_answer_train']:
+            elif (
+                i
+                < cfg["v2_samples_per_answer_val"] + cfg["v2_samples_per_answer_train"]
+            ):
                 data = v2_train_data
             else:
                 break
 
-            data.append({
-                'image_path': image_path,
-                'question': question,
-                'answer_id': labels.index(answer)
-            })
+            data.append(
+                {
+                    "image_path": image_path,
+                    "question": question,
+                    "answer_id": labels.index(answer),
+                }
+            )
 
-    if cfg['print_logs']:
-        print(f'V2: \tTrain size = {len(v2_train_data)}\t \
-            | Val size = {len(v2_val_data)} | Total = {len(v2_train_data) + len(v2_val_data)}')
+    if cfg["print_logs"]:
+        print(
+            f"V2: \tTrain size = {len(v2_train_data)}\t \
+            | Val size = {len(v2_val_data)} | Total = {len(v2_train_data) + len(v2_val_data)}"
+        )
 
     abs_train_data = []
     abs_val_data = []
-    for answer, samples in zip(filtered_answers[:n_classes], filtered_abs_samples[:n_classes]):
+    for answer, samples in zip(
+        filtered_answers[:n_classes], filtered_abs_samples[:n_classes]
+    ):
         for i, sample in enumerate(samples):
             image_id, question_id = sample
             image_id = str(image_id).zfill(5)
-            ext = '.png'
+            ext = ".png"
 
-            image_path = vqa_abs['image_root'] + str(image_id) + ext
+            image_path = vqa_abs["image_root"] + str(image_id) + ext
             question = abs_question_id_map[question_id]
 
-            if i < cfg['abs_samples_per_answer_val']:  # To keep the val set fixed
+            if i < cfg["abs_samples_per_answer_val"]:  # To keep the val set fixed
                 data = abs_val_data
-            elif i < cfg['abs_samples_per_answer_val'] + cfg['abs_samples_per_answer_train']:
+            elif (
+                i
+                < cfg["abs_samples_per_answer_val"]
+                + cfg["abs_samples_per_answer_train"]
+            ):
                 data = abs_train_data
             else:
                 break
 
-            data.append({
-                'image_path': image_path,
-                'question': question,
-                'answer_id': labels.index(answer)
-            })
+            data.append(
+                {
+                    "image_path": image_path,
+                    "question": question,
+                    "answer_id": labels.index(answer),
+                }
+            )
 
-    if cfg['print_logs']:
-        print(f'Abs: \tTrain size = {len(abs_train_data)}\t \
-            | Val size = {len(abs_val_data)} | Total = {len(abs_train_data) + len(abs_val_data)}')
+    if cfg["print_logs"]:
+        print(
+            f"Abs: \tTrain size = {len(abs_train_data)}\t \
+            | Val size = {len(abs_val_data)} | Total = {len(abs_train_data) + len(abs_val_data)}"
+        )
 
-        print('-' * 20)
-        
+        print("-" * 20)
+
     return (v2_train_data, v2_val_data), (abs_train_data, abs_val_data), labels
-
-class VQADataset(Dataset):
-    def __init__(self, cfg, data):
-        self.cfg = cfg
-        self.data = data
-
-        self.i_processor = AutoImageProcessor.from_pretrained(cfg['image_encoder'])
-        self.q_tokenizer = BertTokenizer.from_pretrained(cfg['text_encoder'], clean_up_tokenization_spaces=True)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        data_item = self.data[idx]
-
-        idx_tr = torch.tensor(data_item['answer_id'])
-        label = F.one_hot(idx_tr, num_classes=self.cfg['n_classes']).float()
-
-        image = Image.open(data_item['image_path']).convert('RGB')
-        
-        ### Debug ###
-        # image.show()
-        # print('Question:', data_item['question'])
-        ###-------###
-
-        i_tokens = self.i_processor(images=image, return_tensors='pt')
-        q_tokens = self.q_tokenizer(
-            data_item['question'], 
-            padding="max_length", 
-            max_length=self.cfg['max_q_len'], 
-            truncation=True, 
-            return_tensors='pt')
-
-        # dirty way to fix dimention issue:
-        i_tokens['pixel_values'] = i_tokens['pixel_values'].squeeze(0)
-
-        for key, value in q_tokens.items():
-            q_tokens[key] = value.squeeze(0)
-
-        return i_tokens, q_tokens, label
-
-
-class DA_DataLoader:
-    def __init__(self, v2_loader, abs_loader):
-        self.len = len(v2_loader) + len(abs_loader)
-        return zip(v2_loader, abs_loader)
-
-    def __len__(self):
-        return self.len

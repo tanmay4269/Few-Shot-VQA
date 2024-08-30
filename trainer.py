@@ -331,9 +331,9 @@ class DA_Trainer(Trainer):
 
         train_losses = np.array(self.train_losses)
 
-        ax[0].plot(np.arange(epoch), train_losses[:, 0], label="Label Loss")
-        ax[0].plot(np.arange(epoch), train_losses[:, 1], label="Domain Loss")
-        ax[0].plot(np.arange(epoch), train_losses[:, 2], label="Train Loss")
+        ax[0].plot(np.arange(epoch), train_losses[:, 0], label="Train Label Loss")
+        ax[0].plot(np.arange(epoch), train_losses[:, 1], label="Train Domain Loss")
+        ax[0].plot(np.arange(epoch), train_losses[:, 2], label="Train Total Loss")
         ax[0].plot(np.arange(epoch), self.eval_losses, label="Eval Loss")
         ax[0].legend()
         ax[0].set_title("Losses")
@@ -341,8 +341,8 @@ class DA_Trainer(Trainer):
         ax[0].set_ylabel("Loss")
 
         accuracies = np.array(self.accuracies)
-        ax[1].plot(np.arange(epoch), accuracies[:, 0], label="V2 Accuracy")
-        ax[1].plot(np.arange(epoch), accuracies[:, 1], label="Abs Accuracy")
+        # ax[1].plot(np.arange(epoch), accuracies[:, 0], label="V2 Accuracy")
+        # ax[1].plot(np.arange(epoch), accuracies[:, 1], label="Abs Accuracy")
         ax[1].plot(np.arange(epoch), accuracies[:, 2], label="Total Accuracy")
         ax[1].plot(np.arange(epoch), accuracies[:, 3], label="Domain Accuracy")
         ax[1].legend()
@@ -701,7 +701,14 @@ if __name__ == '__main__':
         'name': 'DANN',
 
         ### DataLoader ###
-        'n_classes': 6,
+        # 'n_classes': 6,
+        'n_classes': 10,
+        'labels': [
+            'yes', 'no',
+            '0', '1', '2', '3',  
+            'red', 'yellow', 'blue', 'green', 
+        ],
+        #
         'v2_samples_per_answer': 300,
         'abs_samples_per_answer': 300,
 
