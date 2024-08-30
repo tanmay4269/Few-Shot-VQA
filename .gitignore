@@ -5,3 +5,13 @@ data/vqa-data.zip
 weights/raw/*
 weights/selected/*
 .cometml-runs
+domain_adaptation/results/10-classes/DA-stacks_1-better_label_head.ipynb
+domain_adaptation/results/10-classes/DA-stacks_1-criss_cross_d_0.5.ipynb
+domain_adaptation/results/10-classes/DA-stacks_1-lots_of_drop_bn.ipynb
+domain_adaptation/results/10-classes/DA-stacks_1-lr_5e-4.ipynb
+domain_adaptation/results/10-classes/DA-stacks_2-lr_0.0005.ipynb
+domain_adaptation/results/10-classes/DA-stacks_4-lr_5e-4.ipynb
+domain_adaptation/results/10-classes/DA-stacks=1-masked_aug copy.ipynb
+domain_adaptation/results/10-classes/DA-stacks=1-masked_aug.ipynb
+domain_adaptation/results/10-classes/naive_sampling.ipynb
+domain_adaptation/results/10-classes/tmp.ipynb
