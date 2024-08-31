@@ -5,4 +5,3 @@ data/vqa-data.zip
 weights/raw/*
 weights/selected/*
 .cometml-runs
-domain_adaptation/results/*
