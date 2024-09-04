@@ -1,7 +1,7 @@
 from comet_ml import Experiment
 
 import torch
-from trainer import DA_Trainer
+from trainer import DATrainer
 
 import optuna
 from optuna.trial import TrialState
@@ -136,7 +136,7 @@ class OptunaTrainer:
             l = self.cfg[k]
             self.cfg[k] = [l, l]
 
-        trainer = DA_Trainer(self.cfg, self.vqa_v2, self.vqa_abs)
+        trainer = DATrainer(self.cfg, self.vqa_v2, self.vqa_abs)
 
         trial.params['n_classes'] = self.cfg['n_classes']  # Coz it could update in data_processing_v2
 

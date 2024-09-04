@@ -1,4 +1,5 @@
-__pycache__
+*__pycache__*
+.idea
 data/vqa-v2
 data/vqa-abstract
 data/vqa-data.zip
