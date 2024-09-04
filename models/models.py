@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from models.VLModel import VLModel
 from models.functions import ReverseLayerF
-
+from data.dataset import VQADataset
 
 class DANN_VLModel(VLModel):
     def __init__(self, cfg, embed_dim=768, return_embeddings=False):
@@ -13,6 +13,7 @@ class DANN_VLModel(VLModel):
         self.num_types = cfg['n_types']
         self.use_label_type_classifier = cfg['use_label_type_classifier']
         self.append_label_type_logits = cfg['append_label_type_logits']
+        self.give_location_of_labels_in_label_type = cfg['give_location_of_labels_in_label_type']
 
         self.ffn_domain_classifier = self.init_ffn(
             cfg["domain_classifier__use_bn"],
@@ -30,7 +31,7 @@ class DANN_VLModel(VLModel):
             cfg['n_types'],
             repeat_layers=cfg['label_classifier__repeat_layers']
         )
-
+        
     def init_label_classifier(
             self, 
             use_bn, drop_p, embed_dim, 
@@ -82,6 +83,11 @@ class DANN_VLModel(VLModel):
             out_features = self.embed_dim
         )
         
+        self.append_and_shrink_labels_in_predicted_label_type = nn.Linear(
+            in_features = self.embed_dim + num_labels,
+            out_features = self.embed_dim
+        )        
+        
         # Label classifier
         self.ffn_label_classifier = nn.Sequential()
         if self.fusion_mode == "cat":
@@ -97,8 +103,18 @@ class DANN_VLModel(VLModel):
 
         if self.use_label_type_classifier:
             label_type_logits = self.ffn_label_type_classifier(x)
+            
             if self.append_label_type_logits:
                 x = self.ffn_append_label_type(torch.cat((x, label_type_logits), dim=1))
+                
+            if self.give_location_of_labels_in_label_type:
+                label_type_indices = torch.argmax(label_type_logits, dim=1)
+                labels_in_label_type = VQADataset.get_labels_in_label_type_tensor(label_type_indices)
+                
+                x = self.append_and_shrink_labels_in_predicted_label_type(
+                    torch.cat((x, labels_in_label_type), dim=1)
+                )
+                
         else:
             label_type_logits = torch.zeros(x.shape[0], self.num_types).cuda()
             

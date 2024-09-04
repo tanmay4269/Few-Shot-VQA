@@ -182,12 +182,17 @@ class DATrainer(Trainer):
 
         label_loss = 0.5 * weighted_v2_label_loss + 0.5 * weighted_abs_label_loss
 
-        if self.cfg['use_label_type_classifier']:
-            total_loss = (
-                0.5 * (0.5 * label_loss + 0.5 * label_type_loss) + 0.5 * domain_loss
-            )
-        else:
-            total_loss = 0.5 * label_loss + 0.5 * domain_loss
+        losses = []
+        if 'DANN' in self.cfg['train_modes']:
+            losses.append(domain_loss)
+        
+        if 'label' in self.cfg['train_modes']:
+            losses.append(label_loss)
+        
+        if self.cfg['use_label_type_classifier'] and 'label_type' in self.cfg['train_modes']:
+            losses.append(label_type_loss)
+
+        total_loss = sum(losses)
 
         return label_loss, domain_loss, label_type_loss, total_loss
 
@@ -353,14 +358,14 @@ class DATrainer(Trainer):
             label_type_loss_meter.update(label_type_loss.item())
             total_loss_meter.update(total_loss.item())
 
-            # if (
-            #     self.cfg["print_logs"]
-            #     and self.num_train_batches > 4
-            #     and i % (self.num_train_batches // 4) == 0
-            # ):
-            #     print(
-            #         f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
-            #     )
+            if (
+                self.cfg["print_logs"]
+                and self.num_train_batches > 8
+                and i % (self.num_train_batches // 8) == 0
+            ):
+                print(
+                    f"\t Iter [{i}/{self.num_train_batches}]\t Loss: {total_loss.item():.6f}"
+                )
 
             self.optimizer.zero_grad()
             total_loss.backward()

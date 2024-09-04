@@ -4,6 +4,8 @@ from collections import defaultdict, deque
 import numpy as np
 from PIL import Image
 
+import config
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -118,8 +120,7 @@ def data_processing_v2(
     #         'non_living_things': ['food', 'table'],
     #         'others': ['soccer', 'left', 'right', 'nothing'],
     #     }
-    # else: # 32 labels
-    # # elif samples_lowerbound >= 150: # 32 labels
+    # elif samples_lowerbound >= 150: # 32 labels
     #     label_types = {
     #         'yes_no': ['yes', 'no'],
     #         'numbers': ['0', '1', '2', '3', '4', '5'],
@@ -128,7 +129,8 @@ def data_processing_v2(
     #         'non_living_things': ['food', 'table', 'apple', 'wine'],
     #         'others': ['soccer', 'beach', 'left', 'right', 'nothing'],
     #     }
-
+    
+    
     label_type_to_labels = cfg['label_type_to_labels']
 
     label_types = list(label_type_to_labels.keys())
@@ -154,8 +156,13 @@ def data_processing_v2(
     for answer in all_labels:
         filtered_answers.append(answer)
         filtered_num_samples.append(len(v2_answers[answer]) + len(abs_answers[answer]))
-        filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
-        filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
+        
+        if cfg['min_samples_mode']:
+            filtered_v2_samples.append(v2_answers[answer])
+            filtered_abs_samples.append(abs_answers[answer])
+        else:
+            filtered_v2_samples.append(v2_answers[answer][:v2_samples_per_answer])
+            filtered_abs_samples.append(abs_answers[answer][:abs_samples_per_answer])
 
     if cfg['print_logs']:
         print(f'Number of Common Labels = {len(filtered_answers)} | n_classes = {n_classes}')
@@ -178,10 +185,13 @@ def data_processing_v2(
 
             if i < cfg['v2_samples_per_answer_val']:
                 data = v2_val_data
-            elif i < cfg['v2_samples_per_answer_val'] + cfg['v2_samples_per_answer_train']:
-                data = v2_train_data
+            elif not cfg['min_samples_mode']:
+                if i < cfg['v2_samples_per_answer_val'] + cfg['v2_samples_per_answer_train']:
+                    data = v2_train_data
+                else:
+                    break
             else:
-                break
+                data = v2_train_data
 
             data.append({
                 'image_path': image_path,
@@ -207,10 +217,13 @@ def data_processing_v2(
 
             if i < cfg['abs_samples_per_answer_val']:
                 data = abs_val_data
-            elif i < cfg['abs_samples_per_answer_val'] + cfg['abs_samples_per_answer_train']:
-                data = abs_train_data
+            elif not cfg['min_samples_mode']:
+                if i < cfg['abs_samples_per_answer_val'] + cfg['abs_samples_per_answer_train']:
+                    data = abs_train_data
+                else:
+                    break
             else:
-                break
+                data = abs_train_data
 
             data.append({
                 'image_path': image_path,
@@ -269,6 +282,24 @@ class VQADataset(Dataset):
             q_tokens[key] = value.squeeze(0)
 
         return i_tokens, q_tokens, label, label_type
+    
+    @classmethod
+    def get_labels_in_label_type_tensor(self, label_type_indices):
+        # assumes arg: label_type is a tensor of indices in 
+        # self.cfg['label_type_to_labels'] a batch
+        
+        label_types_list = list(config.label_type_to_labels.keys())
+        
+        batch_size = len(label_type_indices)
+        many_hot = torch.zeros(batch_size, config.n_labels, dtype=torch.float32)
+        
+        starts = torch.tensor([len(label_types_list[i]) for i in label_type_indices])
+        ends = starts + torch.tensor([len(label_types_list[i]) for i in label_type_indices]) - 1
+        
+        for i in range(batch_size):
+            many_hot[i, starts[i]:ends[i] + 1] = 1
+        
+        return many_hot.cuda()
 
 
 class DA_DataLoader:
