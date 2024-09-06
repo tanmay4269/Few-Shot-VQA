@@ -10,9 +10,103 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
+import albumentations as A
 from transformers import AutoImageProcessor, BertTokenizer
 
 
+class VQADataset(Dataset):
+    def __init__(self, cfg, data):
+        self.cfg = cfg
+        self.data = data
+
+        self.i_processor = AutoImageProcessor.from_pretrained(cfg['image_encoder'])
+        self.q_tokenizer = BertTokenizer.from_pretrained(cfg['text_encoder'], clean_up_tokenization_spaces=True)
+        
+        min_size = 100
+        max_size = 200
+
+        self.augmentation = A.Compose(
+            [
+                A.CoarseDropout(
+                    max_holes=1,
+                    min_holes=1,
+                    
+                    max_height=max_size,
+                    max_width=max_size,
+                    min_height=min_size,
+                    min_width=min_size,
+                    
+                    fill_value=0,
+                    mask_fill_value=None,
+                    p=1.0
+                ),
+            ]
+        )
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        data_item = self.data[idx]
+
+        idx_tr = torch.tensor(data_item['answer_id'])
+        label = F.one_hot(idx_tr, num_classes=self.cfg['n_classes']).float()
+
+        idx_tr = torch.tensor(data_item['answer_type'])
+        label_type = F.one_hot(idx_tr, num_classes=self.cfg['n_types']).float()
+
+        image = Image.open(data_item['image_path']).convert('RGB')
+        image = np.array(image)
+        
+        if self.cfg['mask_patches']:
+            augmented = self.augmentation(image=image)
+            image = augmented['image']
+            
+            
+        i_tokens = self.i_processor(images=image, return_tensors='pt')
+        q_tokens = self.q_tokenizer(
+            data_item['question'], 
+            padding="max_length", 
+            max_length=self.cfg['max_q_len'], 
+            truncation=True, 
+            return_tensors='pt')
+
+        # dirty way to fix dimention issue:
+        i_tokens['pixel_values'] = i_tokens['pixel_values'].squeeze(0)
+
+        for key, value in q_tokens.items():
+            q_tokens[key] = value.squeeze(0)
+
+        return i_tokens, q_tokens, label, label_type
+    
+    @classmethod
+    def get_labels_in_label_type_tensor(self, label_type_indices):
+        # assumes arg: label_type is a tensor of indices in 
+        # self.cfg['label_type_to_labels'] a batch
+        
+        label_types_list = list(config.label_type_to_labels.keys())
+        
+        batch_size = len(label_type_indices)
+        many_hot = torch.zeros(batch_size, config.n_labels, dtype=torch.float32)
+        
+        starts = torch.tensor([len(label_types_list[i]) for i in label_type_indices])
+        ends = starts + torch.tensor([len(label_types_list[i]) for i in label_type_indices]) - 1
+        
+        for i in range(batch_size):
+            many_hot[i, starts[i]:ends[i] + 1] = 1
+        
+        return many_hot.cuda()
+
+
+class DA_DataLoader:
+    def __init__(self, v2_loader, abs_loader):
+        self.len = len(v2_loader) + len(abs_loader)
+        return zip(v2_loader, abs_loader)
+
+    def __len__(self):
+        return self.len
+    
+    
 def data_processing_v2(
         cfg, 
         vqa_v2, vqa_abs, 
@@ -239,73 +333,3 @@ def data_processing_v2(
         print('-' * 20)
         
     return (v2_train_data, v2_val_data), (abs_train_data, abs_val_data)
-
-class VQADataset(Dataset):
-    def __init__(self, cfg, data):
-        self.cfg = cfg
-        self.data = data
-
-        self.i_processor = AutoImageProcessor.from_pretrained(cfg['image_encoder'])
-        self.q_tokenizer = BertTokenizer.from_pretrained(cfg['text_encoder'], clean_up_tokenization_spaces=True)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        data_item = self.data[idx]
-
-        idx_tr = torch.tensor(data_item['answer_id'])
-        label = F.one_hot(idx_tr, num_classes=self.cfg['n_classes']).float()
-
-        idx_tr = torch.tensor(data_item['answer_type'])
-        label_type = F.one_hot(idx_tr, num_classes=self.cfg['n_types']).float()
-
-        image = Image.open(data_item['image_path']).convert('RGB')
-        
-        ### Debug ###
-        # image.show()
-        # print('Question:', data_item['question'])
-        ###-------###
-
-        i_tokens = self.i_processor(images=image, return_tensors='pt')
-        q_tokens = self.q_tokenizer(
-            data_item['question'], 
-            padding="max_length", 
-            max_length=self.cfg['max_q_len'], 
-            truncation=True, 
-            return_tensors='pt')
-
-        # dirty way to fix dimention issue:
-        i_tokens['pixel_values'] = i_tokens['pixel_values'].squeeze(0)
-
-        for key, value in q_tokens.items():
-            q_tokens[key] = value.squeeze(0)
-
-        return i_tokens, q_tokens, label, label_type
-    
-    @classmethod
-    def get_labels_in_label_type_tensor(self, label_type_indices):
-        # assumes arg: label_type is a tensor of indices in 
-        # self.cfg['label_type_to_labels'] a batch
-        
-        label_types_list = list(config.label_type_to_labels.keys())
-        
-        batch_size = len(label_type_indices)
-        many_hot = torch.zeros(batch_size, config.n_labels, dtype=torch.float32)
-        
-        starts = torch.tensor([len(label_types_list[i]) for i in label_type_indices])
-        ends = starts + torch.tensor([len(label_types_list[i]) for i in label_type_indices]) - 1
-        
-        for i in range(batch_size):
-            many_hot[i, starts[i]:ends[i] + 1] = 1
-        
-        return many_hot.cuda()
-
-
-class DA_DataLoader:
-    def __init__(self, v2_loader, abs_loader):
-        self.len = len(v2_loader) + len(abs_loader)
-        return zip(v2_loader, abs_loader)
-
-    def __len__(self):
-        return self.len
