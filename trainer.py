@@ -17,6 +17,11 @@ import optuna
 
 # Domain Adaptation Trainer
 class DATrainer(Trainer):
+    """
+    Inheriting Trainer is mostly useless, almost everything is overwritten
+    FIXME: write a trainer without inheriting Trainer because it's just adding to the confusion
+    """
+    
     def __init__(self, cfg, vqa_v2, vqa_abs):
         cfg["embedder_lr"] = cfg["base_lr"]
         cfg["classifier_lr"] = cfg["base_lr"]
@@ -28,7 +33,7 @@ class DATrainer(Trainer):
         self.criterion_domain = nn.BCEWithLogitsLoss()
 
     def init_model(self):
-        return DANN_VLModel(self.cfg).cuda()
+        return DANN_VLModel(self.cfg).cuda()  # FIXME: specifically import this to avoid confusion 
 
     def init_optimizer(self):
         optimizer = torch.optim.Adam(

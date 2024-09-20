@@ -1,13 +1,16 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from data.dataset import VQADataset, data_processing_v2, np, torch
-from models.VLModel import VLModel
+# FIXME: this is super confusing naming, why so?
 from models.models import VLModel, nn
+from models.VLModel import VLModel
+from data.dataset import VQADataset, data_processing_v2, np, torch
 
+# FIXME: why isnt this in config.py
 vqa_v2 = {
     "type": "v2",
     "image_root": "data/vqa-v2/val2014/val2014/COCO_val2014_000000",
@@ -25,6 +28,7 @@ vqa_abs = {
 
 class Trainer:
     def __init__(self, cfg, vqa_v2, vqa_abs):
+        # FIXME: what do the last two args mean?
         self.update_cfg(cfg)
 
         self.num_epochs = cfg["epochs"]
@@ -56,30 +60,13 @@ class Trainer:
     def update_cfg(self, cfg):
         self.cfg = cfg
 
-        title = ""
-        # for k in [
-        #     "name",
-        #     "n_classes",
-        #     "v2_samples_per_answer",
-        #     "abs_samples_per_answer",
-        #     "source_domain",
-        #     "base_lr",
-        #     # "domain_adaptation_method",
-        # ]:
-        #     v = self.cfg[k]
-        #     if k != "base_lr":
-        #         title += f"{k}={v}__"
-        #     else:
-        #         title += f"{k}={v:.2e}__"
-        title = title.replace(" ", "_")
-
         def random_string(n):
             chars = np.array(
                 list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
             )
             return "".join(np.random.choice(chars, n))
 
-        self.cfg["title"] = title + random_string(8)
+        self.cfg["title"] = random_string(8)
 
         self.cfg["weights_save_path"] = (
             self.cfg["weights_save_root"] + "/" + self.cfg["title"] + ".pth"
@@ -110,6 +97,7 @@ class Trainer:
             val_dataset, batch_size=self.cfg["batch_size"], shuffle=False
         )
 
+    # FIXME: pointless if used tensorboard
     def plot(self, epoch):
         fig, ax = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -131,7 +119,7 @@ class Trainer:
 
     def train_epoch(self):
         self.model.train()
-        running_loss = 0.0
+        running_loss = 0.0  # FIXME: use average meter
 
         num_batches = len(self.train_dataloader)
 

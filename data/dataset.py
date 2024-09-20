@@ -107,6 +107,7 @@ class DA_DataLoader:
         return self.len
     
     
+# FIXME: rename this to data_processing
 def data_processing_v2(
         cfg, 
         vqa_v2, vqa_abs, 
